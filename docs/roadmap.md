@@ -5,7 +5,8 @@ tested NixOS deployment without hiding security or runtime uncertainty.
 
 ## Stage 0: Requirements Baseline
 
-Status: in progress.
+Status: in progress (provisional MVP decisions recorded in Stage 1 design;
+security and deployment decisions need review).
 
 Goal: keep the current spec coherent before implementation starts.
 
@@ -19,9 +20,6 @@ More design needed: yes.
 
 Open questions:
 
-- Exact API wire format and authentication model.
-- Session id format and caller identity model.
-- Initial resource limits for CPU, memory, job timeout, output cap, and disk.
 - Whether the first deployment will use systrap only or include optional KVM.
 
 Exit criteria:
@@ -32,7 +30,7 @@ Exit criteria:
 
 ## Stage 1: Architecture Design
 
-Status: not started.
+Status: complete.
 
 Goal: write enough design to prevent the first implementation from baking in
 bad lifecycle boundaries.
@@ -61,11 +59,11 @@ Exit criteria:
 - `docs/design/architecture.md` exists.
 - `docs/design/api.md` exists.
 - `docs/design/session-layout.md` exists.
-- The implementation language/framework choice is made.
+- Python 3.13 with FastAPI/Pydantic is the implementation choice for Stage 2.
 
 ## Stage 2: Local Service Skeleton
 
-Status: not started.
+Status: next.
 
 Goal: create a runnable service without real gVisor execution yet.
 
@@ -154,7 +152,10 @@ Exit criteria:
 
 ## Stage 5: OCI Bundle And `runsc` Runtime Backend
 
-Status: blocked until NixOS/runtime host or equivalent Linux environment.
+Status: in progress.  A privileged NixOS smoke test passed with `runsc`,
+`systrap`, no network, a read-only rootfs, and a writable workspace.  The
+pinned Python rootfs, OCI bundle generator, service deployment, and full
+resource/lifecycle integration suite remain.  See `docs/design/nixos-runtime.md`.
 
 Goal: execute jobs inside real gVisor sandboxes using direct `runsc run`.
 
@@ -322,4 +323,3 @@ The first useful code slice should stop before gVisor:
 That slice proves the agent-facing contract and job semantics on macOS. The next
 slice on NixOS replaces the executor with the real `runsc` backend and adds
 security integration tests.
-
