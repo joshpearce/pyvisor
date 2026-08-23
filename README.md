@@ -20,6 +20,6 @@ The dependency lockfile is committed so development and CI resolve the same
 versions. Runtime-dependent gVisor tests will be added separately and run on a
 NixOS host.
 
-Run the Stage 2 local service with `uv run pyvisor`. Its in-memory executor is
-only an API/lifecycle test double: it does **not** run submitted commands and
+Run the local lifecycle service with `uv run pyvisor`. It executes submitted
+commands as ordinary local processes, so it is useful for development only and
 must never be exposed as a sandbox service.

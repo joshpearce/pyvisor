@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -49,7 +51,14 @@ def create_app(config: AppConfig | None = None, jobs: JobService | None = None) 
     config = config or AppConfig.from_environment()
     configure_logging(config.log_level)
     jobs = jobs or JobService(config)
-    app = FastAPI(title="Pyvisor", version="0.1.0", docs_url=None, redoc_url=None)
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        yield
+        await jobs.aclose()
+
+    app = FastAPI(
+        title="Pyvisor", version="0.1.0", docs_url=None, redoc_url=None, lifespan=lifespan
+    )
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(_: Request, __: RequestValidationError) -> JSONResponse:

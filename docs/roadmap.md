@@ -120,20 +120,18 @@ Exit criteria:
 
 ## Stage 4: Process Job Manager
 
-Status: not started.
+Status: complete.
 
 Goal: implement real local process job semantics before adding gVisor.
 
 Tasks:
 
-- Launch commands as process groups.
-- Feed empty/null stdin.
-- Capture stdout/stderr to files while running.
-- Enforce wall-clock timeout.
-- Implement process-group cancellation.
-- Implement one-live-job-per-session busy behavior.
-- Implement foreground soft-cap wait.
-- Add tests for completion, running, timeout, cancellation, and busy responses.
+- Completed: launch commands as process groups with empty/null stdin.
+- Completed: capture stdout/stderr to durable files while running.
+- Completed: enforce wall-clock timeout and process-group cancellation.
+- Completed: implement one-live-job-per-session busy behavior and foreground soft-cap wait.
+- Completed: add local-process tests for completion, running, timeout,
+  cancellation, and busy responses.
 
 More design needed: limited.
 

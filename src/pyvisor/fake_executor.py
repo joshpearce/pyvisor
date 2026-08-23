@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import signal
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 from pyvisor.models import JobStatus
@@ -41,9 +44,42 @@ class FakeExecutor:
     def __init__(self, planner: ExecutionPlanner = _complete_successfully) -> None:
         self._planner = planner
 
-    def start(self, command: str) -> FakeExecution:
-        return self._planner(command)
+    sandbox_image = "fake-executor"
 
-    def cancel(self, job_id: str) -> FakeExecution:
-        del job_id
-        return FakeExecution(status="cancelled", exit_code=None)
+    async def start(
+        self,
+        command: str,
+        *,
+        workspace: Path,
+        stdout_path: Path,
+        stderr_path: Path,
+    ) -> _FakeProcessExecution:
+        del workspace
+        execution = self._planner(command)
+        if execution.stdout:
+            with stdout_path.open("ab") as stdout:
+                stdout.write(execution.stdout.encode())
+        if execution.stderr:
+            with stderr_path.open("ab") as stderr:
+                stderr.write(execution.stderr.encode())
+        return _FakeProcessExecution(execution)
+
+
+class _FakeProcessExecution:
+    """Asynchronous adapter that keeps the fake backend usable in API tests."""
+
+    def __init__(self, execution: FakeExecution) -> None:
+        self._execution = execution
+        self._finished = asyncio.Event()
+        self._exit_code = execution.exit_code
+        if execution.status != "running":
+            self._finished.set()
+
+    async def wait(self) -> int:
+        await self._finished.wait()
+        return self._exit_code if self._exit_code is not None else -signal.SIGTERM
+
+    async def terminate(self) -> int:
+        self._exit_code = -signal.SIGTERM
+        self._finished.set()
+        return self._exit_code

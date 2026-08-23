@@ -316,6 +316,16 @@ class SessionStorage:
             self._bounded_output(job_path / record.stderr_path, self._output_limit_bytes),
         )
 
+    def execution_paths(self, record: JobRecord) -> tuple[Path, Path, Path]:
+        """Return service-owned paths for a command after its job was created."""
+        job_path = self._job_path(record.session_id, record.job_id, create=False)
+        session_path = self._session_path(record.session_id, create=False)
+        stdout_path = job_path / record.stdout_path
+        stderr_path = job_path / record.stderr_path
+        if not self._regular_file(stdout_path) or not self._regular_file(stderr_path):
+            raise StorageError("durable output file is missing")
+        return session_path / "workspace", stdout_path, stderr_path
+
     def _trace_job_ids(self, trace_path: Path) -> set[str]:
         if not self._regular_file(trace_path):
             return set()

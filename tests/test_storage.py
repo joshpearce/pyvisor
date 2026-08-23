@@ -121,3 +121,4 @@ async def test_restart_terminalizes_interrupted_job_and_writes_one_trace(tmp_pat
 
     JobService(config)
     assert len(trace_path.read_text().splitlines()) == 1
+    await first.aclose()
