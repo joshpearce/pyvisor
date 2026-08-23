@@ -63,20 +63,20 @@ Exit criteria:
 
 ## Stage 2: Local Service Skeleton
 
-Status: in progress.
+Status: complete.
 
 Goal: create a runnable service without real gVisor execution yet.
 
 Tasks:
 
 - Completed: add project packaging and dependency management.
-- Implement config loading.
-- Implement health endpoint.
-- Implement request/response models.
-- Implement `run`, `poll`, and `cancel` API routes behind a fake/local executor.
-- Implement session id and job id validation.
-- Add structured logging.
-- Add initial unit and API tests.
+- Completed: implement config loading.
+- Completed: implement health endpoint.
+- Completed: implement request/response models.
+- Completed: implement `run`, `poll`, and `cancel` API routes behind a fake executor.
+- Completed: implement session id and job id validation.
+- Completed: add structured logging.
+- Completed: add initial unit and API tests.
 
 More design needed: limited.
 

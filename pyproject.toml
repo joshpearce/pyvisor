@@ -16,6 +16,9 @@ dependencies = [
     "uvicorn==0.34.0",
 ]
 
+[project.scripts]
+pyvisor = "pyvisor.app:main"
+
 [dependency-groups]
 dev = [
     "httpx==0.28.1",

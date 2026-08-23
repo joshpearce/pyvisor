@@ -19,3 +19,7 @@ uv run ruff check .
 The dependency lockfile is committed so development and CI resolve the same
 versions. Runtime-dependent gVisor tests will be added separately and run on a
 NixOS host.
+
+Run the Stage 2 local service with `uv run pyvisor`. Its in-memory executor is
+only an API/lifecycle test double: it does **not** run submitted commands and
+must never be exposed as a sandbox service.

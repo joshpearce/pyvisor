@@ -1,0 +1,83 @@
+from __future__ import annotations
+
+import pytest
+import pytest_asyncio
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+
+
+@pytest_asyncio.fixture
+async def client(app: FastAPI) -> AsyncClient:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        yield client
+
+
+@pytest.mark.asyncio
+async def test_healthz(client: AsyncClient) -> None:
+    response = await client.get("/healthz")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_run_completed_job(client: AsyncClient) -> None:
+    response = await client.post("/v1/sessions/chat_01/jobs", json={"command": "print(2 + 2)"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["exit_code"] == 0
+    assert body["stdout"] == {
+        "text": "accepted: print(2 + 2)\\n",
+        "truncated": False,
+        "total_bytes": 24,
+        "returned_bytes": 24,
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_poll_cancel_running_job_and_busy_response(client: AsyncClient) -> None:
+    started = await client.post("/v1/sessions/chat_01/jobs", json={"command": "long-running"})
+
+    assert started.status_code == 202
+    job_id = started.json()["job_id"]
+    busy = await client.post("/v1/sessions/chat_01/jobs", json={"command": "another"})
+    assert busy.status_code == 409
+    assert busy.json()["error"]["code"] == "busy"
+
+    polled = await client.get(f"/v1/sessions/chat_01/jobs/{job_id}")
+    assert polled.status_code == 200
+    assert polled.json()["status"] == "running"
+
+    cancelled = await client.post(f"/v1/sessions/chat_01/jobs/{job_id}/cancel")
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    assert cancelled.json()["finished_at"] is not None
+
+    repeated_cancel = await client.post(f"/v1/sessions/chat_01/jobs/{job_id}/cancel")
+    assert repeated_cancel.status_code == 200
+    assert repeated_cancel.json()["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_invalid_requests_and_unknown_jobs(client: AsyncClient) -> None:
+    invalid_session = await client.post("/v1/sessions/-invalid/jobs", json={"command": "x"})
+    assert invalid_session.status_code == 400
+    assert invalid_session.json()["error"]["code"] == "invalid_session_id"
+
+    malformed = await client.post(
+        "/v1/sessions/chat/jobs", json={"command": "", "unexpected": True}
+    )
+    assert malformed.status_code == 400
+    assert malformed.json()["error"]["code"] == "invalid_request"
+
+    invalid_job = await client.get("/v1/sessions/chat/jobs/not-a-uuid")
+    assert invalid_job.status_code == 400
+    assert invalid_job.json()["error"]["code"] == "invalid_request"
+
+    unknown = await client.get("/v1/sessions/chat/jobs/00000000-0000-4000-8000-000000000000")
+    assert unknown.status_code == 404
+    assert unknown.json()["error"]["code"] == "not_found"
