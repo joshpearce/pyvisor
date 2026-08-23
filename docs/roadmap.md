@@ -63,13 +63,13 @@ Exit criteria:
 
 ## Stage 2: Local Service Skeleton
 
-Status: next.
+Status: in progress.
 
 Goal: create a runnable service without real gVisor execution yet.
 
 Tasks:
 
-- Add project packaging and dependency management.
+- Completed: add project packaging and dependency management.
 - Implement config loading.
 - Implement health endpoint.
 - Implement request/response models.
