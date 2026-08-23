@@ -1,16 +1,17 @@
-"""In-memory job lifecycle service backed by the Stage 2 fake executor."""
+"""Job lifecycle coordination backed by durable session storage."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import uuid4
 
 from pyvisor.config import AppConfig
 from pyvisor.fake_executor import FakeExecutor
-from pyvisor.models import JobResponse, JobStatus, OutputResponse
+from pyvisor.models import JobResponse
+from pyvisor.storage import JobRecord, SessionStorage, StoredJobNotFoundError
 
 LOGGER = logging.getLogger("pyvisor.jobs")
 
@@ -31,50 +32,36 @@ class InvalidRequestError(JobServiceError):
     pass
 
 
-@dataclass(slots=True)
-class _Job:
-    session_id: str
-    job_id: str
-    command: str
-    status: JobStatus
-    started_at: datetime
-    timeout_seconds: int
-    stdout: str
-    stderr: str
-    finished_at: datetime | None
-    exit_code: int | None
-
-
 class JobService:
     """Coordinates fake jobs while preserving the future service boundary."""
 
     def __init__(self, config: AppConfig, executor: FakeExecutor | None = None) -> None:
         self._config = config
         self._executor = executor or FakeExecutor()
-        self._jobs: dict[tuple[str, str], _Job] = {}
+        self._storage = SessionStorage(config.sessions_root, config.output_limit_bytes)
         self._live_job_ids: dict[str, str] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        for record in self._storage.reconcile_interrupted_jobs():
+            LOGGER.warning(
+                "job_reconciled",
+                extra={"session_id": record.session_id, "job_id": record.job_id},
+            )
 
     def _session_lock(self, session_id: str) -> asyncio.Lock:
         return self._locks.setdefault(session_id, asyncio.Lock())
 
-    @staticmethod
-    def _output(text: str) -> OutputResponse:
-        encoded = text.encode("utf-8")
-        return OutputResponse(text=text, total_bytes=len(encoded), returned_bytes=len(encoded))
-
-    @classmethod
-    def _response(cls, job: _Job) -> JobResponse:
+    def _response(self, record: JobRecord) -> JobResponse:
+        stdout, stderr = self._storage.output(record)
         return JobResponse(
-            session_id=job.session_id,
-            job_id=job.job_id,
-            status=job.status,
-            command=job.command,
-            started_at=job.started_at,
-            finished_at=job.finished_at,
-            exit_code=job.exit_code,
-            stdout=cls._output(job.stdout),
-            stderr=cls._output(job.stderr),
+            session_id=record.session_id,
+            job_id=record.job_id,
+            status=record.status,
+            command=record.command,
+            started_at=record.started_at,
+            finished_at=record.finished_at,
+            exit_code=record.exit_code,
+            stdout=stdout,
+            stderr=stderr,
         )
 
     def _timeout(self, requested_timeout: int | None) -> int:
@@ -94,51 +81,64 @@ class JobService:
         async with self._session_lock(session_id):
             if session_id in self._live_job_ids:
                 raise BusyError("session already has a live job")
-            execution = self._executor.start(command)
-            now = datetime.now(UTC)
-            job = _Job(
+            record = JobRecord(
                 session_id=session_id,
                 job_id=str(uuid4()),
                 command=command,
-                status=execution.status,
-                started_at=now,
+                status="running",
+                started_at=datetime.now(UTC),
                 timeout_seconds=timeout,
-                stdout=execution.stdout,
-                stderr=execution.stderr,
-                finished_at=None if execution.status == "running" else now,
-                exit_code=execution.exit_code,
             )
-            self._jobs[(session_id, job.job_id)] = job
-            if job.status == "running":
-                self._live_job_ids[session_id] = job.job_id
+            # Persist the accepted job before handing it to an executor.
+            self._storage.create_job(record)
+            execution = self._executor.start(command)
+            self._storage.append_output(record, stdout=execution.stdout, stderr=execution.stderr)
+            if execution.status != "running":
+                record = replace(
+                    record,
+                    status=execution.status,
+                    finished_at=datetime.now(UTC),
+                    exit_code=execution.exit_code,
+                )
+                self._storage.write_job(record)
+                self._storage.append_trace(record)
+            if record.status == "running":
+                self._live_job_ids[session_id] = record.job_id
             LOGGER.info(
                 "job_started",
-                extra={"session_id": session_id, "job_id": job.job_id, "status": job.status},
+                extra={"session_id": session_id, "job_id": record.job_id, "status": record.status},
             )
-            return self._response(job)
+            return self._response(record)
 
     async def poll(self, session_id: str, job_id: str) -> JobResponse:
-        job = self._jobs.get((session_id, job_id))
-        if job is None:
-            raise NotFoundError("job was not found in this session")
-        return self._response(job)
+        try:
+            record = self._storage.load_job(session_id, job_id)
+        except StoredJobNotFoundError as error:
+            raise NotFoundError("job was not found in this session") from error
+        return self._response(record)
 
     async def cancel(self, session_id: str, job_id: str) -> JobResponse:
         async with self._session_lock(session_id):
-            job = self._jobs.get((session_id, job_id))
-            if job is None:
-                raise NotFoundError("job was not found in this session")
-            if job.status != "running":
-                return self._response(job)
+            try:
+                record = self._storage.load_job(session_id, job_id)
+            except StoredJobNotFoundError as error:
+                raise NotFoundError("job was not found in this session") from error
+            if record.status != "running":
+                return self._response(record)
             execution = self._executor.cancel(job_id)
-            job.status = execution.status
-            job.stdout += execution.stdout
-            job.stderr += execution.stderr
-            job.exit_code = execution.exit_code
-            job.finished_at = datetime.now(UTC)
+            self._storage.append_output(record, stdout=execution.stdout, stderr=execution.stderr)
+            record = replace(
+                record,
+                status=execution.status,
+                exit_code=execution.exit_code,
+                finished_at=datetime.now(UTC),
+                reason="cancel_requested",
+            )
+            self._storage.write_job(record)
+            self._storage.append_trace(record)
             self._live_job_ids.pop(session_id, None)
             LOGGER.info(
                 "job_cancelled",
-                extra={"session_id": session_id, "job_id": job_id, "status": job.status},
+                extra={"session_id": session_id, "job_id": job_id, "status": record.status},
             )
-            return self._response(job)
+            return self._response(record)

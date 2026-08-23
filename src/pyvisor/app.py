@@ -14,6 +14,7 @@ from pyvisor.ids import valid_job_id, valid_session_id
 from pyvisor.jobs import BusyError, InvalidRequestError, JobService, NotFoundError
 from pyvisor.logging import configure_logging
 from pyvisor.models import ErrorResponse, HealthResponse, JobResponse, RunJobRequest
+from pyvisor.storage import StorageError
 
 LOGGER = logging.getLogger("pyvisor.app")
 
@@ -75,6 +76,9 @@ def create_app(config: AppConfig | None = None, jobs: JobService | None = None) 
             return _error(409, "busy", str(error))
         except InvalidRequestError as error:
             return _error(400, "invalid_request", str(error))
+        except StorageError:
+            LOGGER.exception("durable_storage_failure", extra={"session_id": session_id})
+            return _error(500, "internal_error", "durable job storage failed")
         status_code = 202 if response.status == "running" else 200
         return JSONResponse(status_code=status_code, content=response.model_dump(mode="json"))
 
@@ -90,6 +94,11 @@ def create_app(config: AppConfig | None = None, jobs: JobService | None = None) 
             return await jobs.poll(session_id, job_id)
         except NotFoundError as error:
             return _error(404, "not_found", str(error))  # type: ignore[return-value]
+        except StorageError:
+            LOGGER.exception(
+                "durable_storage_failure", extra={"session_id": session_id, "job_id": job_id}
+            )
+            return _error(500, "internal_error", "durable job storage failed")  # type: ignore[return-value]
 
     @app.post(
         "/v1/sessions/{session_id}/jobs/{job_id}/cancel",
@@ -103,6 +112,11 @@ def create_app(config: AppConfig | None = None, jobs: JobService | None = None) 
             return await jobs.cancel(session_id, job_id)
         except NotFoundError as error:
             return _error(404, "not_found", str(error))  # type: ignore[return-value]
+        except StorageError:
+            LOGGER.exception(
+                "durable_storage_failure", extra={"session_id": session_id, "job_id": job_id}
+            )
+            return _error(500, "internal_error", "durable job storage failed")  # type: ignore[return-value]
 
     LOGGER.info("service_boot")
     return app

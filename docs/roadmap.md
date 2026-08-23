@@ -94,21 +94,16 @@ Exit criteria:
 
 ## Stage 3: Durable Session Storage And Trace
 
-Status: not started.
+Status: complete.
 
 Goal: make session directories and job records the durable source of truth.
 
 Tasks:
 
-- Implement configured sessions root.
-- Implement session directory creation and lookup.
-- Implement durable job directories.
-- Write stdout/stderr files from job start.
-- Implement bounded API output with head/tail truncation.
-- Implement robust UTF-8 decoding.
-- Implement trace append.
-- Add crash-tolerance where practical for state and trace writes.
-- Add tests for persistence, truncation, trace entries, and invalid ids.
+- Completed: implement configured sessions root, durable session/job layout, and output files.
+- Completed: implement atomic state writes, crash-tolerant JSONL trace repair, and restart reconciliation.
+- Completed: serve bounded head/tail output with robust UTF-8 replacement decoding.
+- Completed: add persistence, truncation, trace, and restart-reconciliation tests.
 
 More design needed: moderate.
 

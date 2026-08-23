@@ -12,12 +12,12 @@ from pyvisor.jobs import JobService
 
 
 @pytest.fixture
-def app() -> FastAPI:
+def app(tmp_path: Path) -> FastAPI:
     def planner(command: str) -> FakeExecution:
         if command == "long-running":
             return FakeExecution(status="running", exit_code=None)
         return FakeExecution(stdout=f"accepted: {command}\\n")
 
-    config = AppConfig(sessions_root=Path("/tmp/sessions"))
+    config = AppConfig(sessions_root=tmp_path / "sessions", runtime_root=tmp_path / "runtime")
     service = JobService(config, FakeExecutor(planner))
     return create_app(config, service)
