@@ -11,6 +11,10 @@ verbatim at first and has since been replaced by a derived value (see below).
 
 `https://pyvisor.dunker-bramble.ts.net` — tailnet only, over a tsnsrv sidecar.
 
+`http://127.0.0.1:8000` — NAS host only, published from the app container on
+the host loopback interface for local operator access. It is not bound to a LAN
+or public interface.
+
 It is **deliberately never public**: no Tailscale Funnel attribute, and the
 tailnet policy carries an explicit deny assertion for non-admin identities,
 because this service executes caller-supplied code. Do not add a funnel entry.
