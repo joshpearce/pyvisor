@@ -1,5 +1,11 @@
 # NixOS Deployment Draft
 
+> **Superseded deployment draft.** This pre-deployment document is retained for
+> design context. [`docs/deployment-notes.md`](../deployment-notes.md) is the
+> as-deployed reference, and `/home/josh/code/nixconfigs/nas/pyvisor.nix` is
+> the authoritative configuration source. Do not copy this draft into a deploy
+> without reconciling it against those sources.
+
 This is the Stage 9 deployment shape for `lildeet`. Pyvisor is a rootless
 Podman/Quadlet workload. The `tsnsrv` sidecar is **not** a Pyvisor component or
 artifact: it belongs solely in the NAS host configuration, where the draft
@@ -27,8 +33,9 @@ nix build .#pyvisor-container
 contains the service, `runsc`, and the closure-complete sandbox rootfs. The
 image listens on `0.0.0.0:8000` only inside its private Quadlet network. It
 deliberately has no configured sandbox image identity: deployment must set
-`PYVISOR_SANDBOX_IMAGE_IDENTITY` to the NAR identity of the rootfs it was built
-with. A missing identity makes the `runsc` backend reject job execution.
+`PYVISOR_SANDBOX_IMAGE_IDENTITY` from the same `sandbox-rootfs` derivation that
+the image contains. A missing identity makes the `runsc` backend reject job
+execution.
 
 The app runs as UID 0 *inside* the rootless Podman user namespace, which maps
 to the dedicated unprivileged host account. The runtime explicitly verifies
@@ -108,6 +115,7 @@ The NAS host's workload contract requires five coordinated changes.
 let
   pyvisorUid = 1219;
   pyvisorImage = pyvisor.packages.x86_64-linux.pyvisor-container;
+  sandboxRootfs = pyvisor.packages.x86_64-linux.sandbox-rootfs;
   tsOauthScripts = pkgs.callPackage ../packages/tailscale-oauth/tailscale-oauth.nix { };
   authKeyPath = "/workloads/pyvisor/.tailscale-key";
   quadletDir = "containers/systemd/users/${toString pyvisorUid}";
@@ -126,10 +134,10 @@ in
     [Container]
     Image=localhost/pyvisor:0.1.0
     Network=pyvisor-net.network
-    HostName=pyvisor
+    HostName=pyvisor-app
     Volume=/workloads/pyvisor/sessions:/var/lib/pyvisor/sessions
-    Environment=PYVISOR_SANDBOX_IMAGE_IDENTITY=pyvisor-sandbox-python-3.13@sha256:REPLACE_WITH_NAR_HASH
-    HealthCmd=${pkgs.curl}/bin/curl --fail --silent http://127.0.0.1:8000/healthz
+    Environment=PYVISOR_SANDBOX_IMAGE_IDENTITY=pyvisor-sandbox-python-3.13@${builtins.baseNameOf sandboxRootfs}
+    HealthCmd=/bin/curl --fail --silent http://127.0.0.1:8000/healthz
     HealthInterval=30s
     HealthTimeout=5s
     HealthRetries=3
@@ -138,6 +146,9 @@ in
     Restart=always
     RestartSec=5s
     TimeoutStartSec=120
+    MemoryMax=16G
+    CPUQuota=400%
+    TasksMax=2048
 
     [Install]
     WantedBy=default.target
@@ -153,7 +164,7 @@ in
     Network=pyvisor-net.network
     Volume=/workloads/pyvisor/.tsnsrv-pyvisor:/state
     Volume=${authKeyPath}:/authkey:ro
-    Exec=-stateDir /state -authkeyPath /authkey -name pyvisor http://pyvisor:8000/
+    Exec=-stateDir /state -authkeyPath /authkey -name pyvisor http://pyvisor-app:8000/
 
     [Service]
     Restart=always
@@ -212,8 +223,8 @@ in
 ## Required review and validation
 
 Review the proposed `tag:wl-pyvisor` Tailscale ACL/tag authorization before
-deploying. Build the image and obtain the rootfs NAR identity before replacing
-the placeholder:
+deploying. The module derives the image identity from the same rootfs
+derivation that the image embeds; inspect it when validating a build:
 
 ```sh
 cd /home/josh/code/pyvisor

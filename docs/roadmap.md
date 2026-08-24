@@ -574,7 +574,7 @@ unbounded on-disk leak, and the decision is recorded in this item.
 
 ### FU-6: Correct The NixOS Deployment Draft
 
-- Status: pending
+- Status: in progress
 - Priority: medium
 - Stage: 9
 - Blocked by: none
