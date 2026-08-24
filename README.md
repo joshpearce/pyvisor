@@ -23,3 +23,8 @@ NixOS host.
 Run the local lifecycle service with `uv run pyvisor`. It executes submitted
 commands as ordinary local processes, so it is useful for development only and
 must never be exposed as a sandbox service.
+
+The direct gVisor backend is opt-in with `PYVISOR_EXECUTION_BACKEND=runsc`.
+It requires a pinned prepared rootfs, an explicit sandbox image identity, and
+the NixOS service permissions described in `docs/design/nixos-runtime.md`; it
+is not runnable from an ordinary development shell.

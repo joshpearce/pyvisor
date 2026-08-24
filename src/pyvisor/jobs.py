@@ -12,6 +12,7 @@ from pyvisor.config import AppConfig
 from pyvisor.executor import JobExecution, JobExecutor
 from pyvisor.local_executor import LocalProcessExecutor
 from pyvisor.models import JobResponse, JobStatus
+from pyvisor.runsc_executor import RunscExecutor
 from pyvisor.storage import JobRecord, SessionStorage, StoredJobNotFoundError
 
 LOGGER = logging.getLogger("pyvisor.jobs")
@@ -46,7 +47,7 @@ class JobService:
 
     def __init__(self, config: AppConfig, executor: JobExecutor | None = None) -> None:
         self._config = config
-        self._executor = executor or LocalProcessExecutor()
+        self._executor = executor or self._default_executor(config)
         self._storage = SessionStorage(config.sessions_root, config.output_limit_bytes)
         self._live_jobs: dict[str, _LiveJob] = {}
         self._locks: dict[str, asyncio.Lock] = {}
@@ -55,6 +56,12 @@ class JobService:
                 "job_reconciled",
                 extra={"session_id": record.session_id, "job_id": record.job_id},
             )
+
+    @staticmethod
+    def _default_executor(config: AppConfig) -> JobExecutor:
+        if config.execution_backend == "runsc":
+            return RunscExecutor(config)
+        return LocalProcessExecutor()
 
     def _session_lock(self, session_id: str) -> asyncio.Lock:
         return self._locks.setdefault(session_id, asyncio.Lock())
@@ -173,6 +180,7 @@ class JobService:
             try:
                 execution = await self._executor.start(
                     command,
+                    session_id=session_id,
                     workspace=workspace,
                     stdout_path=stdout_path,
                     stderr_path=stderr_path,

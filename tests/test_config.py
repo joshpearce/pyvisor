@@ -22,3 +22,10 @@ def test_config_rejects_default_timeout_above_maximum(monkeypatch: pytest.Monkey
 
     with pytest.raises(ConfigurationError, match="must not exceed"):
         AppConfig.from_environment()
+
+
+def test_config_rejects_unknown_execution_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PYVISOR_EXECUTION_BACKEND", "docker")
+
+    with pytest.raises(ConfigurationError, match="EXECUTION_BACKEND"):
+        AppConfig.from_environment()

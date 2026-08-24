@@ -33,11 +33,22 @@ enforced sandbox limits.
 | target memory limit | 1 GiB |
 | target session disk limit | 1 GiB |
 | target scratch disk limit | 512 MiB |
+| execution backend | `local` (development only) |
+| `runsc` binary | `/usr/local/bin/runsc` |
+| sandbox rootfs | `/var/lib/pyvisor/rootfs` |
+| sandbox image identity | `pyvisor-sandbox:unconfigured` |
 
 The CPU, memory, and disk settings above are configuration intent until the
 runtime backend proves the selected host mechanism applies them.  The job
 wall-clock timeout and API-output bound are enforced by the service from the
 local-process stage onward.
+
+`PYVISOR_EXECUTION_BACKEND=runsc` selects the direct gVisor backend.  It also
+requires `PYVISOR_RUNSC_BINARY`, `PYVISOR_SANDBOX_ROOTFS`, and a non-placeholder
+`PYVISOR_SANDBOX_IMAGE_IDENTITY` appropriate to the deployment.  The service
+must run as a dedicated non-root account: the generated OCI process uses that
+account's numeric UID/GID so the private session workspace remains writable
+without being made world-writable.
 
 ## Components and ownership
 

@@ -52,10 +52,12 @@ class LocalProcessExecutor:
         self,
         command: str,
         *,
+        session_id: str,
         workspace: Path,
         stdout_path: Path,
         stderr_path: Path,
     ) -> LocalProcessExecution:
+        del session_id
         # ``start_new_session`` gives the shell and all descendants an isolated
         # process group, so timeout and cancellation do not leave children behind.
         with stdout_path.open("ab") as stdout, stderr_path.open("ab") as stderr:

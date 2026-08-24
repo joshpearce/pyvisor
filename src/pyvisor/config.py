@@ -35,7 +35,7 @@ def _positive_float(name: str, default: float) -> float:
 
 @dataclass(frozen=True, slots=True)
 class AppConfig:
-    """Configuration values used by the service and future runtime backend."""
+    """Configuration values used by the service and execution backends."""
 
     sessions_root: Path = Path("/var/lib/pyvisor/sessions")
     runtime_root: Path = Path("/var/lib/pyvisor/runtime")
@@ -49,6 +49,10 @@ class AppConfig:
     memory_limit_bytes: int = 1_073_741_824
     session_disk_limit_bytes: int = 1_073_741_824
     scratch_disk_limit_bytes: int = 536_870_912
+    execution_backend: str = "local"
+    runsc_binary: Path = Path("/usr/local/bin/runsc")
+    sandbox_rootfs: Path = Path("/var/lib/pyvisor/rootfs")
+    sandbox_image_identity: str = "pyvisor-sandbox:unconfigured"
     log_level: str = "INFO"
 
     @classmethod
@@ -69,6 +73,12 @@ class AppConfig:
                 "PYVISOR_SESSION_DISK_LIMIT_BYTES", 1_073_741_824
             ),
             scratch_disk_limit_bytes=_positive_int("PYVISOR_SCRATCH_DISK_LIMIT_BYTES", 536_870_912),
+            execution_backend=os.getenv("PYVISOR_EXECUTION_BACKEND", "local").lower(),
+            runsc_binary=Path(os.getenv("PYVISOR_RUNSC_BINARY", "/usr/local/bin/runsc")),
+            sandbox_rootfs=Path(os.getenv("PYVISOR_SANDBOX_ROOTFS", "/var/lib/pyvisor/rootfs")),
+            sandbox_image_identity=os.getenv(
+                "PYVISOR_SANDBOX_IMAGE_IDENTITY", "pyvisor-sandbox:unconfigured"
+            ),
             log_level=os.getenv("PYVISOR_LOG_LEVEL", "INFO").upper(),
         )
         if config.default_timeout_seconds > config.maximum_timeout_seconds:
@@ -78,4 +88,8 @@ class AppConfig:
             )
         if config.sessions_root == config.runtime_root:
             raise ConfigurationError("PYVISOR_SESSIONS_ROOT and PYVISOR_RUNTIME_ROOT must differ")
+        if config.execution_backend not in {"local", "runsc"}:
+            raise ConfigurationError("PYVISOR_EXECUTION_BACKEND must be either 'local' or 'runsc'")
+        if not config.sandbox_image_identity:
+            raise ConfigurationError("PYVISOR_SANDBOX_IMAGE_IDENTITY must not be empty")
         return config

@@ -50,11 +50,12 @@ class FakeExecutor:
         self,
         command: str,
         *,
+        session_id: str,
         workspace: Path,
         stdout_path: Path,
         stderr_path: Path,
     ) -> _FakeProcessExecution:
-        del workspace
+        del session_id, workspace
         execution = self._planner(command)
         if execution.stdout:
             with stdout_path.open("ab") as stdout:

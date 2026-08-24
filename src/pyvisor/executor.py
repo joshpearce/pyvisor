@@ -23,6 +23,7 @@ class JobExecutor(Protocol):
         self,
         command: str,
         *,
+        session_id: str,
         workspace: Path,
         stdout_path: Path,
         stderr_path: Path,

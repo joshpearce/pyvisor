@@ -73,7 +73,9 @@ silently fall back to host networking.
 ## Next validation sequence
 
 1. Provision the service account and delegated cgroup subtree in NixOS.
-2. Build a minimal pinned Python rootfs and OCI bundle generator.
+2. Build a minimal pinned Python rootfs.  The service now has a unit-tested OCI
+   bundle generator, but it requires this rootfs and a delegated NixOS service
+   context before it can be exercised.
 3. Repeat the passed `runsc run` isolation smoke test using that rootfs.
 4. Keep a trivial init alive; prove `runsc exec` can run separate commands
    against the same workspace.

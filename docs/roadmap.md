@@ -154,14 +154,14 @@ Goal: execute jobs inside real gVisor sandboxes using direct `runsc run`.
 
 Tasks:
 
-- Add runtime backend that generates OCI bundles.
-- Mount session directory at the fixed in-container work path.
-- Configure no-network sandbox execution.
-- Configure read-only base filesystem plus writable session and scratch paths.
+- Completed: add a direct `runsc` backend that generates restrictive per-job OCI bundles.
+- Completed: mount the session workspace at fixed in-container `/workspace`.
+- Completed: invoke `runsc` with `--network=none` and `--platform=systrap`.
+- Completed: generate a read-only base filesystem with only workspace and bounded scratch writable.
 - Hold warm containers open between jobs.
 - Exec jobs into warm containers or define the equivalent direct-`runsc`
   mechanism.
-- Label/tag containers by session for reconciliation.
+- Completed: label generated containers with managed, session, and image-identity OCI annotations.
 - Implement orphan cleanup on service startup.
 - Add runtime integration tests.
 
