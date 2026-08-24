@@ -82,8 +82,8 @@ Tasks:
 - Completed: implement session id and job id validation.
 - Completed: add structured logging.
 - Completed: add initial unit and API tests.
-- Pending: FU-4 in Deployment Review Follow-Ups — `JobResponse` omits `reason`,
-  and the documented `503`/`500` for a failed runtime setup is really a `200`.
+- Completed: FU-4 — `JobResponse` exposes the durable closed-vocabulary reason,
+  and the API documentation correctly describes a failed runtime setup as a `200`.
 
 More design needed: limited.
 
@@ -505,7 +505,7 @@ reverted.
 
 ### FU-4: Tell The Caller Why A Job Failed To Start
 
-- Status: pending
+- Status: complete (9d28671)
 - Priority: medium
 - Stage: 2
 - Blocked by: none
@@ -532,7 +532,7 @@ wrong channel for this; `reason` is the right one.
 Watch out for:
 
 - `reason` is a closed vocabulary, not prose: `timeout`, `cancel_requested`,
-  `service_restart`, `executor_start_failed`, `executor_wait_failed`,
+  `service_restart`, `service_shutdown`, `executor_start_failed`, `executor_wait_failed`,
   `timeout_termination_failed`, `cancel_termination_failed`,
   `missing_live_executor`.  Keep it that way — raw runsc output does not belong
   in an API field, and `docs/design/session-layout.md:53-55` forbids unredacted
