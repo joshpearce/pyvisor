@@ -154,24 +154,19 @@ Both flags are needed.
 Both paths are exercised by a completed job: pyvisor boots the runtime with
 `run --detach` and runs each command through `exec`.
 
-### Still open: the failure detail is captured and then deleted
+### Resolved: launch diagnostics reach structured logs
 
-Unchanged by the fix above, and the reason this took an afternoon rather than a
-minute.
+`_runtime()` writes `runsc` stderr to `runsc-launch.stderr` while starting and
+folds it into `RuntimeUnavailableError`. `job_start_failed` logs that exception
+as a structured `error` field, capped at 4 KiB, so operators can diagnose a
+launch failure from the service logs without retaining a bundle or raw runtime
+output in durable state.
 
-`_runtime()` writes runsc's stderr to `runsc-launch.stderr` in the bundle and
-folds it into the `RuntimeUnavailableError` message — exactly the right thing.
-But the `except` branch then calls `self._builder.remove(bundle)`, destroying
-that file, and `job_start_failed` logs only a `job_id`. The one artifact that
-explains the failure is discarded at the moment it is needed, and nothing
-reaches the operator through the API, the durable job record, or the logs.
-
-Diagnosing this required shelling into the container and running runsc by hand
-to reproduce. Preserving the bundle on startup failure, or logging the captured
-detail, would reduce that to reading a log line.
-`reason: "executor_start_failed"` is the right granularity for the state record
-— it correctly separates "the executor never started" from "the command failed"
-— it just stops one level short of why.
+Bundles remain disposable. On a failed `runsc run`, Pyvisor attempts
+`runsc delete --force` against the generated container id before deleting the
+bundle; a cleanup failure is logged separately and never obscures the launch
+diagnostic. `reason: "executor_start_failed"` remains the stable durable/API
+classification, rather than exposing implementation output to callers.
 
 ## Verified working
 

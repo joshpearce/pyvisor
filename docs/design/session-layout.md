@@ -78,7 +78,9 @@ exactly one terminal trace record even when the service restarts.
   service-managed paths.
 - Runtime bundles, runsc root/state, cgroup handles, and scratch directories
   reside beneath the separate disposable runtime root.  They are intentionally
-  absent from this layout and may be destroyed during reconciliation or reaping.
+  absent from this layout and may be destroyed during failed launch cleanup,
+  reconciliation, or reaping. Failed `runsc` launch stderr is emitted through
+  the bounded structured exception log, not retained in a disposable bundle.
 
 ## Crash behaviour
 

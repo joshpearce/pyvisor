@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import shutil
 import signal
@@ -22,6 +23,7 @@ from pyvisor.config import AppConfig
 from pyvisor.ids import valid_session_id
 
 _OCI_VERSION = "1.0.2"
+LOGGER = logging.getLogger("pyvisor.runsc_executor")
 
 
 class RuntimeUnavailableError(RuntimeError):
@@ -564,6 +566,28 @@ class RunscExecutor:
                             message = f"{message}: {detail}"
                         raise RuntimeUnavailableError(message)
             except Exception:
+                try:
+                    delete = await asyncio.create_subprocess_exec(
+                        str(self._config.runsc_binary),
+                        "--root",
+                        str(self._builder.runsc_root),
+                        "delete",
+                        "--force",
+                        bundle.container_id,
+                        stdin=asyncio.subprocess.DEVNULL,
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL,
+                    )
+                    if await delete.wait() != 0:
+                        raise RuntimeUnavailableError(
+                            "runsc could not clean up a failed warm runtime launch"
+                        )
+                except Exception:
+                    # Preserve the launch diagnostic as the primary exception. The
+                    # caller logs it with a bounded structured exception detail.
+                    LOGGER.exception(
+                        "runsc_launch_cleanup_failed", extra={"session_id": session_id}
+                    )
                 self._builder.remove(bundle)
                 raise
             runtime = _WarmRuntime(session_id=session_id, bundle=bundle)

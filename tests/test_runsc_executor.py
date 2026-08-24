@@ -26,7 +26,9 @@ def test_runsc_root_check_accepts_rootless_container_root(
     assert not RunscExecutor.runs_as_host_root(uid_map)
 
 
-def test_runsc_root_check_rejects_host_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_runsc_root_check_rejects_host_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     uid_map = tmp_path / "uid_map"
     uid_map.write_text("0 0 4294967295\n")
     monkeypatch.setattr("pyvisor.runsc_executor.os.geteuid", lambda: 0)
@@ -336,18 +338,21 @@ async def test_runsc_executor_reports_warm_runtime_launch_failure(
     calls: list[tuple[object, ...]] = []
 
     class Process:
-        returncode = 1
+        def __init__(self, returncode: int) -> None:
+            self.returncode = returncode
 
         async def wait(self) -> int:
             return self.returncode
 
     async def create_subprocess_exec(*args: object, **kwargs: object) -> Process:
         calls.append(args)
-        stderr = kwargs["stderr"]
-        assert hasattr(stderr, "write")
-        stderr.write(b"runsc: sandbox boot failed\n")
-        stderr.flush()
-        return Process()
+        if "run" in args:
+            stderr = kwargs["stderr"]
+            assert hasattr(stderr, "write")
+            stderr.write(b"runsc: sandbox boot failed\n")
+            stderr.flush()
+            return Process(1)
+        return Process(0)
 
     monkeypatch.setattr(
         "pyvisor.runsc_executor.asyncio.create_subprocess_exec", create_subprocess_exec
@@ -362,8 +367,9 @@ async def test_runsc_executor_reports_warm_runtime_launch_failure(
             stderr_path=tmp_path / "stderr.bin",
         )
 
-    assert len(calls) == 1
+    assert len(calls) == 2
     assert calls[0][7] == "run"
+    assert calls[1][3:] == ("delete", "--force", calls[0][-1])
     assert list((tmp_path / "runtime" / "bundles").iterdir()) == []
 
 
