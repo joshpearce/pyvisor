@@ -23,6 +23,20 @@ async def test_healthz(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_metrics_exposes_lifecycle_counters_without_identifiers(client: AsyncClient) -> None:
+    started = await client.post("/v1/sessions/chat_01/jobs", json={"command": "print(2 + 2)"})
+    assert started.status_code == 200
+
+    response = await client.get("/metrics")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain; version=0.0.4")
+    assert 'pyvisor_jobs_terminal_total{status="completed"} 1' in response.text
+    assert "pyvisor_jobs_running 0" in response.text
+    assert "chat_01" not in response.text
+
+
+@pytest.mark.asyncio
 async def test_run_completed_job(client: AsyncClient) -> None:
     response = await client.post("/v1/sessions/chat_01/jobs", json={"command": "print(2 + 2)"})
 

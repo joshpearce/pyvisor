@@ -238,7 +238,8 @@ Tasks:
 - Completed: synchronize reaping with launch, cancellation, and terminalization.
 - Completed: retain startup reconciliation before the reaper begins.
 - Completed: add structured idle-reap logs.
-- Pending: add lifecycle metrics.
+- Completed: expose process-level lifecycle metrics without high-cardinality
+  session or job labels.
 - Completed: add tests for reaping and non-reaping of active jobs.
 
 More design needed: moderate.

@@ -12,6 +12,7 @@ from uuid import uuid4
 from pyvisor.config import AppConfig
 from pyvisor.executor import JobExecution, JobExecutor
 from pyvisor.local_executor import LocalProcessExecutor
+from pyvisor.metrics import LifecycleMetrics
 from pyvisor.models import JobResponse, JobStatus
 from pyvisor.runsc_executor import RunscExecutor
 from pyvisor.storage import JobRecord, SessionStorage, StoredJobNotFoundError
@@ -52,6 +53,7 @@ class JobService:
         self._storage = SessionStorage(config.sessions_root, config.output_limit_bytes)
         self._live_jobs: dict[str, _LiveJob] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._metrics = LifecycleMetrics()
         self._last_activity: dict[str, float] = {}
         self._reaper_task: asyncio.Task[None] | None = None
 
@@ -60,8 +62,11 @@ class JobService:
         reconcile_orphans = getattr(self._executor, "reconcile_orphans", None)
         if reconcile_orphans is not None:
             removed = await reconcile_orphans()
+            self._metrics.runtime_orphans_reconciled(removed)
             LOGGER.info("runtime_orphans_reconciled", extra={"count": removed})
         for record in self._storage.reconcile_interrupted_jobs():
+            self._metrics.job_reconciled()
+            self._metrics.job_terminal(record.status)
             LOGGER.warning(
                 "job_reconciled",
                 extra={"session_id": record.session_id, "job_id": record.job_id},
@@ -110,10 +115,16 @@ class JobService:
                     or session_id in self._live_jobs
                 ):
                     continue
-                removed = await self._executor.reap(session_id)
+                try:
+                    removed = await self._executor.reap(session_id)
+                except Exception:
+                    self._metrics.runtime_reap_failed()
+                    LOGGER.exception("runtime_idle_reap_failed", extra={"session_id": session_id})
+                    continue
                 self._last_activity.pop(session_id, None)
                 if removed:
                     reaped += 1
+                    self._metrics.runtime_reaped()
                     LOGGER.info("runtime_idle_reaped", extra={"session_id": session_id})
         return reaped
 
@@ -130,6 +141,10 @@ class JobService:
             stdout=stdout,
             stderr=stderr,
         )
+
+    def prometheus_metrics(self) -> str:
+        """Return process-lifetime lifecycle metrics without session labels."""
+        return self._metrics.render(running_jobs=len(self._live_jobs))
 
     def _timeout(self, requested_timeout: int | None) -> int:
         timeout = (
@@ -165,6 +180,7 @@ class JobService:
             )
             self._storage.write_job(terminal)
             self._storage.append_trace(terminal)
+            self._metrics.job_terminal(terminal.status)
             live = self._live_jobs.get(record.session_id)
             if live is not None and live.job_id == record.job_id:
                 self._live_jobs.pop(record.session_id, None)
@@ -250,6 +266,7 @@ class JobService:
                 )
                 self._storage.write_job(record)
                 self._storage.append_trace(record)
+                self._metrics.job_terminal(record.status)
                 self._touch_activity(session_id)
                 return self._response(record)
             watcher = asyncio.create_task(self._watch(record, execution))
@@ -294,6 +311,7 @@ class JobService:
                 )
                 self._storage.write_job(terminal)
                 self._storage.append_trace(terminal)
+                self._metrics.job_terminal(terminal.status)
                 self._touch_activity(session_id)
                 return self._response(terminal)
             try:
@@ -318,6 +336,7 @@ class JobService:
                 )
             self._storage.write_job(terminal)
             self._storage.append_trace(terminal)
+            self._metrics.job_terminal(terminal.status)
             self._live_jobs.pop(session_id, None)
             self._touch_activity(session_id)
             LOGGER.info(

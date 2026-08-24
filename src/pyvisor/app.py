@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from pyvisor.config import AppConfig
 from pyvisor.ids import valid_job_id, valid_session_id
@@ -72,6 +72,12 @@ def create_app(config: AppConfig | None = None, jobs: JobService | None = None) 
     @app.get("/healthz", response_model=HealthResponse)
     async def healthz() -> HealthResponse:
         return HealthResponse()
+
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics() -> PlainTextResponse:
+        return PlainTextResponse(
+            jobs.prometheus_metrics(), media_type="text/plain; version=0.0.4; charset=utf-8"
+        )
 
     @app.post(
         "/v1/sessions/{session_id}/jobs",

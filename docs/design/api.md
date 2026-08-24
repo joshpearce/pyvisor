@@ -51,6 +51,14 @@ It does not claim that the gVisor runtime is usable.  Runtime readiness is
 reported in structured logs and later metrics, so a temporary `runsc` failure
 does not make an otherwise healthy process disappear from diagnostics.
 
+## `GET /metrics`
+
+Returns process-lifetime lifecycle metrics in Prometheus text format. It reports
+terminal-job counts by status, the current live-job count, idle-runtime reaps
+and failures, and startup reconciliation counts. Metrics intentionally contain
+no session, job, command, container, or image labels. This endpoint is exposed
+only on Pyvisor's private service network.
+
 ## `POST /v1/sessions/{session_id}/jobs`
 
 Starts a command:
