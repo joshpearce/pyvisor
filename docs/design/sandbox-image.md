@@ -38,7 +38,7 @@ Build from a Linux Nix environment with flakes enabled:
 ```sh
 rootfs="$(nix build --no-link --print-out-paths .#sandbox-rootfs)"
 manifest="$rootfs/etc/pyvisor-sandbox-image.json"
-nix path-info --json "$rootfs"
+nix path-info --json --json-format 1 "$rootfs"
 cat "$manifest"
 ```
 

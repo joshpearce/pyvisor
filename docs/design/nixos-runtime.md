@@ -36,6 +36,14 @@ test without `--ignore-cgroups`.  This proves cgroup setup is reachable, but
 does not yet prove that Pyvisor's configured CPU, memory, disk, and pids limits
 are applied correctly; those remain required integration tests.
 
+The pinned Stage 6 rootfs was built successfully from this repository's flake
+on the host.  Its manifest, Python entry point, and shell compatibility links
+were inspected successfully.  A subsequent direct launch from the ordinary
+non-root login session failed as expected before container startup: its
+non-delegated cgroup-v2 subtree denied `runsc` access to
+`cgroup.subtree_control`.  This is not a rootfs failure and does not validate
+the integration suite; run it from the delegated service or VM-test context.
+
 ## Required deployment conditions
 
 1. Install and pin the `runsc` package/binary in the NixOS configuration.
@@ -73,11 +81,8 @@ silently fall back to host networking.
 ## Next validation sequence
 
 1. Provision the service account and delegated cgroup subtree in NixOS.
-2. Build the pinned Python rootfs with `nix build .#sandbox-rootfs` as
-   documented in `sandbox-image.md`.  The service has a unit-tested OCI bundle
-   generator, but it requires this rootfs and a delegated NixOS service context
-   before it can be exercised.
-3. Repeat the passed `runsc run` isolation smoke test using that rootfs.
+2. Repeat the passed `runsc run` isolation smoke test using the built rootfs
+   from the delegated NixOS service or VM-test context.
 4. Keep a trivial init alive; prove `runsc exec` can run separate commands
    against the same workspace.
 5. Add resource, cancellation, reaper, and restart-reconciliation tests before

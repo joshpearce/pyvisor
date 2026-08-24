@@ -199,8 +199,11 @@ Tasks:
   utilities.
 - Completed: define a reproducible closure-complete Nix rootfs artifact.
 - Completed: add the generated flake lock, which pins the exact versions.
-- Pending: build the artifact and run the opt-in NixOS `runsc` integration
-  suite against it.
+- Completed: build the artifact from the pinned flake and verify its manifest,
+  NAR identity, Python entry point, and shell compatibility links on NixOS.
+- Blocked: run the opt-in NixOS `runsc` integration suite from a delegated
+  non-root service or VM-test cgroup; the ordinary login session cannot create
+  the runtime cgroup.
 - Pending: confirm `pip install` fails legibly without network in the NixOS
   security suite.
 - Completed: document deriving an image identity from the rootfs NAR hash;

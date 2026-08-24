@@ -87,6 +87,10 @@
         done < ${rootfsClosure}/store-paths
 
         cp -a ${rootfsEnvironment}/bin/. "$out/bin/"
+        # ``cp -a`` preserves the source directory's store-mode metadata,
+        # including its lack of write permission.  Restore write access before
+        # replacing the environment-provided ``sh`` link below.
+        chmod u+w "$out/bin"
         ln -s /bin "$out/usr/bin"
         ln -s /bin/python3 "$out/usr/local/bin/python3"
         ln -sfn bash "$out/bin/sh"
