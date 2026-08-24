@@ -10,22 +10,19 @@ finish in one sitting, and it explains how to claim one and record the result.
 
 ## Stage 0: Requirements Baseline
 
-Status: in progress (provisional MVP decisions recorded in Stage 1 design;
-security and deployment decisions need review).
+Status: complete. The MVP baseline is the deployed rootless `systrap` runtime
+without `/dev/kvm`; KVM remains an optional future mode requiring a separate
+security and device-access review.
 
 Goal: keep the current spec coherent before implementation starts.
 
 Tasks:
 
-- Maintain `docs/requirements.md` as the source of truth.
-- Keep `agents.md` aligned with the active requirements.
-- Decide which requirements are MVP versus later hardening.
+- Completed: maintain `docs/requirements.md` as the source of truth.
+- Completed: keep `agents.md` aligned with the active requirements.
+- Completed: distinguish the deployed MVP from later hardening.
 
 More design needed: yes.
-
-Open questions:
-
-- Whether the first deployment will use systrap only or include optional KVM.
 
 Exit criteria:
 
