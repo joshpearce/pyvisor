@@ -326,8 +326,9 @@ Tasks:
   policy, required session mount, and intentionally absent `/dev/kvm` mount.
 - Completed: record the as-deployed contracts, storage durability split, nested
   `runsc` requirements, and debugging commands in `docs/deployment-notes.md`.
-- Pending: FU-6 in Deployment Review Follow-Ups — the deployment draft still
-  contains values known to break a deploy.
+- Completed: FU-6 — reconcile the deployment draft's known-broken values with
+  the authoritative NAS configuration and mark it superseded by the deployed
+  notes.
 
 More design needed: moderate.
 
@@ -574,7 +575,7 @@ unbounded on-disk leak, and the decision is recorded in this item.
 
 ### FU-6: Correct The NixOS Deployment Draft
 
-- Status: in progress
+- Status: complete (4cc2638)
 - Priority: medium
 - Stage: 9
 - Blocked by: none
