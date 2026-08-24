@@ -30,6 +30,9 @@ updates them.
   path.
 - Keep the app's internal listener plain HTTP unless an explicit in-process TLS
   requirement is added. HTTPS exposure is expected through the Tailscale sidecar.
+- On the NAS deployment, the app is also published loopback-only at
+  `http://127.0.0.1:8000` for host-local operator access. Do not change that
+  binding to a LAN/public address; external clients use the Tailscale sidecar.
 - Do not add network access inside sandboxes.
 - Keep one live job per session until there is a clear requirement and design
   for concurrent jobs.
