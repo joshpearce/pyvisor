@@ -108,5 +108,6 @@ uv run pytest -m runsc_integration
 ```
 
 The test refuses to run as root and skips unless all four settings are present.
-It does not claim to test CPU, memory, pids, session-disk limits, cancellation,
-or isolation probes; those belong to the later resource and security suite.
+It verifies offline `pip` behavior, a read-only rootfs, the writable workspace
+and scratch mounts, and an empty effective capability set. CPU, memory, pids,
+session-disk limits, and cancellation coverage remain later work.

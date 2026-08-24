@@ -251,7 +251,9 @@ Exit criteria:
 
 ## Stage 8: Resource Limits And Security Verification
 
-Status: blocked until NixOS/runtime host.
+Status: in progress. The rootless NixOS host is available for the opt-in
+isolation suite, but per-sandbox CPU, memory, and disk enforcement still need a
+host-level mechanism.
 
 Goal: prove the sandbox matches the security model.
 
@@ -261,11 +263,10 @@ Tasks:
 - Enforce memory limits.
 - Enforce job wall-clock timeout.
 - Enforce session disk quota.
-- Verify no network from inside sandbox.
-- Verify base filesystem is read-only.
-- Verify writable paths are only intended mounts.
-- Verify dropped capabilities and unprivileged operation.
-- Add automated security integration tests.
+- Pending: run the existing offline `pip` probe in the delegated NixOS service.
+- Completed: add host-gated probes for a read-only rootfs, writable workspace
+  and scratch mounts, and an empty effective capability set.
+- Completed: add automated host-gated isolation integration tests.
 
 More design needed: high.
 

@@ -176,3 +176,54 @@ async def test_runsc_runtime_pip_install_fails_with_an_offline_diagnostic(tmp_pa
             "could not fetch url",
         )
     ), output
+
+
+@pytest.mark.asyncio
+async def test_runsc_runtime_enforces_rootfs_mounts_and_capabilities(tmp_path: Path) -> None:
+    """The sandbox permits only its workspace and scratch mounts to be written."""
+    config = _integration_config(tmp_path)
+    session_id = "runsc_isolation_01"
+    workspace = config.sessions_root / session_id / "workspace"
+    jobs = config.sessions_root / session_id / "jobs"
+    workspace.mkdir(parents=True)
+    jobs.mkdir()
+    executor = RunscExecutor(config)
+    stdout_path = jobs / "isolation.stdout"
+    stderr_path = jobs / "isolation.stderr"
+
+    command = """python3 -c '
+from pathlib import Path
+Path("/workspace/workspace-probe.txt").write_text("workspace\\n")
+Path("/tmp/scratch-probe.txt").write_text("scratch\\n")
+try:
+    Path("/pyvisor-rootfs-write-probe").write_text("must not persist\\n")
+except OSError as error:
+    print(f"rootfs-error:{error.strerror}")
+else:
+    raise SystemExit("rootfs unexpectedly writable")
+cap_eff = next(
+    line.split(":", 1)[1].strip()
+    for line in Path("/proc/self/status").read_text().splitlines()
+    if line.startswith("CapEff:")
+)
+print(f"capeff:{cap_eff}")
+if cap_eff != "0000000000000000":
+    raise SystemExit(f"unexpected effective capabilities: {cap_eff}")
+'"""
+
+    try:
+        execution = await executor.start(
+            command,
+            session_id=session_id,
+            workspace=workspace,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
+        )
+        assert await execution.wait() == 0, stderr_path.read_text(errors="replace")
+    finally:
+        await executor.aclose()
+
+    output = stdout_path.read_text(errors="replace").lower()
+    assert "rootfs-error:read-only file system" in output
+    assert "capeff:0000000000000000" in output
+    assert workspace.joinpath("workspace-probe.txt").read_text() == "workspace\n"
