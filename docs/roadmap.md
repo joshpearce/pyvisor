@@ -177,8 +177,8 @@ Tasks:
   execution, workspace persistence, and orderly runtime cleanup.
 - Completed: run that suite from a dedicated rootless NixOS service using a
   single-UID OCI user namespace and no sandbox network.
-- Pending: FU-3 in Deployment Review Follow-Ups — the executor start-failure
-  path has no test coverage.
+- Completed: FU-3 — cover `runsc` launch diagnostics and durable executor
+  start-failure records.
 - Pending: FU-5 in Deployment Review Follow-Ups — the runsc launch diagnostic
   is captured and then deleted with the bundle.
 
@@ -472,7 +472,7 @@ local-backend default still loads, and the suite passes.
 
 ### FU-3: Cover The Executor Start-Failure Path With Tests
 
-- Status: in progress
+- Status: complete (0e677ef)
 - Priority: high
 - Stage: 5
 - Blocked by: none
