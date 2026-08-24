@@ -204,8 +204,9 @@ Tasks:
   NAR identity, Python entry point, and shell compatibility links on NixOS.
 - Completed: run the opt-in NixOS `runsc` integration suite through the
   dedicated rootless service, validating the built rootfs end to end.
-- Pending: confirm `pip install` fails legibly without network in the NixOS
-  security suite.
+- Completed: add a host-gated integration test that requires `pip install` to
+  fail with a legible offline-network diagnostic.
+- Pending: run that `pip install` check in the delegated NixOS service.
 - Completed: document deriving an image identity from the rootfs NAR hash;
   trace records already persist the configured identity.
 
@@ -277,6 +278,8 @@ existing services.
 
 Tasks:
 
+- Create the persistent ZFS dataset at `lildeet/nasdata/workloads/pyvisor`
+  under `lildeet/nasdata/workloads` and mount it for the service workload.
 - Add container build artifact.
 - Add NixOS service module or deploy snippet.
 - Add Quadlet network definition.

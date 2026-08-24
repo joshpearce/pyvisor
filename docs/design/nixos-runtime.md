@@ -91,8 +91,9 @@ back to host networking.
 `tests/test_runsc_runtime_integration.py` covers the direct-runtime lifecycle
 that is safe to validate before the Stage 8 limit/security suite: it boots a
 warm container, executes Python twice, confirms a workspace write survives
-between execs, and confirms cleanup removes the runtime while preserving the
-session directory.  It is opt-in so ordinary development shells never attempt
+between execs, confirms `pip install` reports that its reserved external index
+is unreachable, and confirms cleanup removes the runtime while preserving the
+session directory. It is opt-in so ordinary development shells never attempt
 to launch gVisor.
 
 From the rootless non-root NixOS service or VM-test context, provide the

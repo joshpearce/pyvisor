@@ -130,3 +130,49 @@ async def test_warm_runsc_runtime_persists_workspace_then_reaps(tmp_path: Path) 
     assert await _listed_container_ids(config) == []
     assert workspace.joinpath("value.txt").read_text() == "persisted\n"
     assert list((config.runtime_root / "bundles").iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_runsc_runtime_pip_install_fails_with_an_offline_diagnostic(tmp_path: Path) -> None:
+    """The pinned image cannot use pip to reach an external package index."""
+    config = _integration_config(tmp_path)
+    session_id = "runsc_pip_offline_01"
+    workspace = config.sessions_root / session_id / "workspace"
+    jobs = config.sessions_root / session_id / "jobs"
+    workspace.mkdir(parents=True)
+    jobs.mkdir()
+    executor = RunscExecutor(config)
+    stdout_path = jobs / "pip.stdout"
+    stderr_path = jobs / "pip.stderr"
+
+    try:
+        execution = await executor.start(
+            (
+                "python3 -m pip install --disable-pip-version-check --no-input "
+                "--no-cache-dir --retries 0 --timeout 5 "
+                "--index-url http://198.51.100.1/simple "
+                "--trusted-host 198.51.100.1 "
+                "--target /workspace/pip-network-probe "
+                "pyvisor-network-probe==0.0.1"
+            ),
+            session_id=session_id,
+            workspace=workspace,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
+        )
+        assert await execution.wait() != 0
+    finally:
+        await executor.aclose()
+
+    output = (stdout_path.read_bytes() + stderr_path.read_bytes()).decode(
+        "utf-8", errors="replace"
+    ).lower()
+    assert any(
+        diagnostic in output
+        for diagnostic in (
+            "network is unreachable",
+            "failed to establish a new connection",
+            "connection error",
+            "could not fetch url",
+        )
+    ), output

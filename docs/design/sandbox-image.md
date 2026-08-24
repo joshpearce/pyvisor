@@ -70,6 +70,7 @@ PYVISOR_SANDBOX_IMAGE_IDENTITY='pyvisor-sandbox-python-3.13@sha256:...' \
 uv run pytest -m runsc_integration
 ```
 
-The separate Stage 8 security suite must additionally prove the offline `pip`
-failure, read-only rootfs, writable workspace and scratch mounts, and resource
+The host-gated runtime suite also makes `pip install` target a reserved external
+address and requires a clear offline-network diagnostic. Stage 8 must still
+prove read-only rootfs, writable workspace and scratch mounts, and resource
 limits on the deployment host.
