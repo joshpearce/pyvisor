@@ -8,6 +8,17 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 JobStatus = Literal["running", "completed", "timed_out", "cancelled", "runtime_error"]
+JobReason = Literal[
+    "timeout",
+    "cancel_requested",
+    "service_restart",
+    "service_shutdown",
+    "executor_start_failed",
+    "executor_wait_failed",
+    "timeout_termination_failed",
+    "cancel_termination_failed",
+    "missing_live_executor",
+]
 
 
 class RunJobRequest(BaseModel):
@@ -34,6 +45,7 @@ class JobResponse(BaseModel):
     started_at: datetime
     finished_at: datetime | None = None
     exit_code: int | None = None
+    reason: JobReason | None = None
     stdout: OutputResponse
     stderr: OutputResponse
 

@@ -24,13 +24,18 @@ Job responses have this shape (fields whose value is unknown are `null`):
   "started_at": "2026-08-23T12:00:00Z",
   "finished_at": "2026-08-23T12:00:01Z",
   "exit_code": 0,
+  "reason": null,
   "stdout": {"text": "4\\n", "truncated": false, "total_bytes": 2, "returned_bytes": 2},
   "stderr": {"text": "", "truncated": false, "total_bytes": 0, "returned_bytes": 0}
 }
 ```
 
 `status` is one of `running`, `completed`, `timed_out`, `cancelled`, or
-`runtime_error`.  `exit_code` is populated only after a process exit is known.
+`runtime_error`. `reason` is `null` unless a terminal lifecycle transition has
+a stable reason token: `timeout`, `cancel_requested`, `service_restart`,
+`service_shutdown`, `executor_start_failed`, `executor_wait_failed`,
+`timeout_termination_failed`, `cancel_termination_failed`, or
+`missing_live_executor`. `exit_code` is populated only after a process exit is known.
 Output is decoded as UTF-8 with replacement.  The full byte streams remain at
 the output paths in the session directory.  For output larger than the configured
 cap, `text` contains equal-sized head and tail portions separated by a fixed
@@ -76,8 +81,9 @@ the configured maximum.  stdin is always closed/empty.
 The response is `200` if the job completes during the foreground soft cap and
 `202` with `status: "running"` otherwise.  A concurrent live job for the same
 session returns `409` with error code `busy`.  Invalid input returns `400`;
-unavailable or failed runtime setup returns `503`/`500` with the applicable
-error code and leaves a durable error state when a job directory was created.
+a failed runtime setup returns `200` with a durable job response whose status is
+`runtime_error` and whose reason is `executor_start_failed`. This preserves the
+`job_id` needed to inspect the durable record.
 
 ## `GET /v1/sessions/{session_id}/jobs/{job_id}`
 
@@ -104,5 +110,4 @@ executor is no longer reliable.
 | live job already in session | 409 | `busy` error |
 | malformed body/id/timeout | 400 | validation error |
 | unknown session/job | 404 | `not_found` error |
-| executor unavailable | 503 | `runtime_unavailable` |
-| unexpected executor/storage failure | 500 | explicit error |
+| durable storage failure | 500 | `internal_error` |

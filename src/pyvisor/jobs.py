@@ -138,6 +138,7 @@ class JobService:
             started_at=record.started_at,
             finished_at=record.finished_at,
             exit_code=record.exit_code,
+            reason=record.reason,
             stdout=stdout,
             stderr=stderr,
         )

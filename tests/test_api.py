@@ -52,6 +52,7 @@ async def test_run_completed_job(client: AsyncClient) -> None:
     body = response.json()
     assert body["status"] == "completed"
     assert body["exit_code"] == 0
+    assert body["reason"] is None
     assert body["stdout"] == {
         "text": "accepted: print(2 + 2)\\n",
         "truncated": False,
@@ -78,6 +79,7 @@ async def test_run_start_failure_creates_a_durable_runtime_error(tmp_path: Path)
     body = response.json()
     assert body["status"] == "runtime_error"
     assert body["exit_code"] is None
+    assert body["reason"] == "executor_start_failed"
     assert body["finished_at"] is not None
     state_path = tmp_path / "sessions" / "chat_01" / "jobs" / body["job_id"] / "state.json"
     state = json.loads(state_path.read_text())
