@@ -42,7 +42,10 @@ nix build .#pyvisor-container
 
 It contains the service, direct `runsc` binary, and pinned sandbox rootfs. See
 `docs/design/nixos-deployment.md` for the reviewed NixOS/Quadlet deployment
-draft and the separate NAS changes that must be applied before deployment.
+draft and the separate NAS changes that must be applied before deployment, and
+`docs/deployment-notes.md` for what actually runs on the NAS today — the
+contracts that break a deploy silently, the storage durability split, and the
+still-unverified nested-`runsc` path.
 
 ## NixOS `runsc` integration test
 

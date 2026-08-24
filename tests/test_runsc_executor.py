@@ -291,20 +291,22 @@ async def test_runsc_executor_boots_a_warm_runtime_then_executes_a_command(
         stderr_path=tmp_path / "stderr.bin",
     )
 
-    assert calls[0][0:8] == (
+    assert calls[0][0:9] == (
         str(runsc),
         "--root",
         str(tmp_path / "runtime" / "runsc"),
+        "--rootless",
         "--ignore-cgroups",
         "--platform=systrap",
         "--network=none",
         "run",
         "--detach",
     )
-    assert calls[1][0:6] == (
+    assert calls[1][0:7] == (
         str(runsc),
         "--root",
         str(tmp_path / "runtime" / "runsc"),
+        "--rootless",
         "--platform=systrap",
         "--network=none",
         "exec",
@@ -363,13 +365,14 @@ async def test_runsc_executor_reuses_the_session_runtime_for_later_jobs(
         stderr_path=tmp_path / "second.stderr",
     )
 
-    assert calls[0][3:7] == (
+    assert calls[0][3:8] == (
+        "--rootless",
         "--ignore-cgroups",
         "--platform=systrap",
         "--network=none",
         "run",
     )
-    assert [call[5] for call in calls[1:]] == ["exec", "exec"]
+    assert [call[6] for call in calls[1:]] == ["exec", "exec"]
     container_id = calls[0][-1]
     assert container_id in calls[1]
     assert container_id in calls[2]

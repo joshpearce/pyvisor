@@ -479,6 +479,9 @@ class RunscExecutor:
                     str(runsc_binary),
                     "--root",
                     str(self._builder.runsc_root),
+                    # Mirrors the launch above: the global mode flags must describe the
+                    # same sandbox this exec joins.
+                    "--rootless",
                     "--platform=systrap",
                     "--network=none",
                     "exec",
@@ -529,6 +532,16 @@ class RunscExecutor:
                         str(self._config.runsc_binary),
                         "--root",
                         str(self._builder.runsc_root),
+                        # Pyvisor is deployed inside a rootless container, where this
+                        # process is UID 0 of its own user namespace. Without
+                        # --rootless, runsc concludes it is real root and takes the
+                        # minimal-chroot sandbox path, which needs CAP_SYS_ADMIN that a
+                        # nested user namespace cannot grant:
+                        #   cannot create sandbox process: can't run sandbox process in
+                        #   minimal chroot since we don't have CAP_SYS_ADMIN
+                        # --ignore-cgroups does not cover this; it addresses the
+                        # separate read-only /sys/fs/cgroup failure.
+                        "--rootless",
                         "--ignore-cgroups",
                         "--platform=systrap",
                         "--network=none",
