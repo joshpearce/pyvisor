@@ -71,12 +71,14 @@ the integration suite; run it from the delegated service or VM-test context.
 ## Baseline runtime flags
 
 The rootless backend begins each invocation with an explicit private runtime
-root, `--ignore-cgroups`, `--platform=systrap`, and `--network=none`. OCI
-configuration supplies a single-UID/GID user namespace, a read-only rootfs,
-empty capabilities, no privilege escalation, and only the session workspace
-plus bounded scratch as writable paths. It must not choose `ptrace`, use
-`TESTONLY-unsafe-nonroot`, grant additional host-ID mappings, or silently fall
-back to host networking.
+root, `--ignore-cgroups`, `--platform=systrap`, and `--network=none`. When
+Pyvisor is UID 0 inside a nested container user namespace, it also passes
+`--rootless`; a direct non-root NixOS service leaves that mode selection to
+runsc. OCI configuration supplies a single-UID/GID user namespace, a read-only
+rootfs, empty capabilities, no privilege escalation, and only the session
+workspace plus bounded scratch as writable paths. It must not choose `ptrace`,
+use `TESTONLY-unsafe-nonroot`, grant additional host-ID mappings, or silently
+fall back to host networking.
 
 ## Next validation sequence
 

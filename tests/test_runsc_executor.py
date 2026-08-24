@@ -36,6 +36,16 @@ def test_runsc_root_check_rejects_host_root(
     assert RunscExecutor.runs_as_host_root(uid_map)
 
 
+def test_runsc_explicit_rootless_mode_is_only_for_nested_container_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("pyvisor.runsc_executor.os.geteuid", lambda: 1218)
+    assert RunscExecutor._rootless_arguments() == ()
+
+    monkeypatch.setattr("pyvisor.runsc_executor.os.geteuid", lambda: 0)
+    assert RunscExecutor._rootless_arguments() == ("--rootless",)
+
+
 def test_oci_bundle_has_fixed_restrictive_sandbox_configuration(tmp_path: Path) -> None:
     workspace = tmp_path / "sessions" / "chat_01" / "workspace"
     workspace.mkdir(parents=True)
@@ -293,22 +303,20 @@ async def test_runsc_executor_boots_a_warm_runtime_then_executes_a_command(
         stderr_path=tmp_path / "stderr.bin",
     )
 
-    assert calls[0][0:9] == (
+    assert calls[0][0:8] == (
         str(runsc),
         "--root",
         str(tmp_path / "runtime" / "runsc"),
-        "--rootless",
         "--ignore-cgroups",
         "--platform=systrap",
         "--network=none",
         "run",
         "--detach",
     )
-    assert calls[1][0:7] == (
+    assert calls[1][0:6] == (
         str(runsc),
         "--root",
         str(tmp_path / "runtime" / "runsc"),
-        "--rootless",
         "--platform=systrap",
         "--network=none",
         "exec",
@@ -368,7 +376,7 @@ async def test_runsc_executor_reports_warm_runtime_launch_failure(
         )
 
     assert len(calls) == 2
-    assert calls[0][7] == "run"
+    assert calls[0][6] == "run"
     assert calls[1][3:] == ("delete", "--force", calls[0][-1])
     assert list((tmp_path / "runtime" / "bundles").iterdir()) == []
 
@@ -423,14 +431,13 @@ async def test_runsc_executor_reuses_the_session_runtime_for_later_jobs(
         stderr_path=tmp_path / "second.stderr",
     )
 
-    assert calls[0][3:8] == (
-        "--rootless",
+    assert calls[0][3:7] == (
         "--ignore-cgroups",
         "--platform=systrap",
         "--network=none",
         "run",
     )
-    assert [call[6] for call in calls[1:]] == ["exec", "exec"]
+    assert [call[5] for call in calls[1:]] == ["exec", "exec"]
     container_id = calls[0][-1]
     assert container_id in calls[1]
     assert container_id in calls[2]

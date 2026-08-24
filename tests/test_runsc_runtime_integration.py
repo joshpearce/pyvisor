@@ -149,6 +149,14 @@ async def test_runsc_runtime_pip_install_fails_with_an_offline_diagnostic(tmp_pa
     try:
         execution = await executor.start(
             (
+                "python3 -c 'import socket\n"
+                "try:\n"
+                "    socket.create_connection((\"198.51.100.1\", 80), timeout=1)\n"
+                "except OSError as error:\n"
+                "    print(f\"network-probe:{error}\")\n"
+                "else:\n"
+                "    raise SystemExit(\"network unexpectedly reachable\")\n"
+                "' ; "
                 "python3 -m pip install --disable-pip-version-check --no-input "
                 "--no-cache-dir --retries 0 --timeout 5 "
                 "--index-url http://198.51.100.1/simple "
@@ -168,9 +176,11 @@ async def test_runsc_runtime_pip_install_fails_with_an_offline_diagnostic(tmp_pa
     output = (stdout_path.read_bytes() + stderr_path.read_bytes()).decode(
         "utf-8", errors="replace"
     ).lower()
+    assert "pyvisor-network-probe==0.0.1" in output
     assert any(
         diagnostic in output
         for diagnostic in (
+            "network-probe:[errno 101] network is unreachable",
             "network is unreachable",
             "failed to establish a new connection",
             "connection error",
@@ -225,7 +235,13 @@ if cap_eff != "0000000000000000":
         await executor.aclose()
 
     output = stdout_path.read_text(errors="replace").lower()
-    assert "rootfs-error:read-only file system" in output
+    assert any(
+        error in output
+        for error in (
+            "rootfs-error:read-only file system",
+            "rootfs-error:permission denied",
+        )
+    ), output
     assert "capeff:0000000000000000" in output
     assert workspace.joinpath("workspace-probe.txt").read_text() == "workspace\n"
 

@@ -149,10 +149,12 @@ requires `CAP_SYS_ADMIN`. A nested user namespace cannot grant that.
 read-only `/sys/fs/cgroup`, which is what surfaces when neither flag is passed).
 Both flags are needed.
 
-`--rootless` is now passed on the warm-runtime launch and mirrored onto
-`runsc exec`, so the global mode flags describe the same sandbox the exec joins.
-Both paths are exercised by a completed job: pyvisor boots the runtime with
-`run --detach` and runs each command through `exec`.
+For that nested-container case, `--rootless` is passed on the warm-runtime
+launch and mirrored onto `runsc exec`, so the global mode flags describe the
+same sandbox the exec joins. A direct non-root NixOS test service lets runsc
+select rootless mode itself; forcing the flag there prevents the gofer helper
+from re-executing itself. Both paths are exercised by a completed job: pyvisor
+boots the runtime with `run --detach` and runs each command through `exec`.
 
 ### Resolved: launch diagnostics reach structured logs
 

@@ -335,6 +335,18 @@ class RunscExecutor:
     def _runtime_lock(self, session_id: str) -> asyncio.Lock:
         return self._runtime_locks.setdefault(session_id, asyncio.Lock())
 
+    @staticmethod
+    def _rootless_arguments() -> tuple[str, ...]:
+        """Force rootless mode only for UID 0 in a nested user namespace.
+
+        A direct NixOS service already runs as a non-root account, for which
+        runsc selects its normal rootless path without the explicit flag. The
+        production container instead runs as UID 0 mapped to an unprivileged
+        host account, where the flag avoids runsc's privileged-root path.
+        ``start()`` rejects real host root before either invocation is built.
+        """
+        return ("--rootless",) if os.geteuid() == 0 else ()
+
     async def reconcile_orphans(self) -> int:
         """Kill surviving, verified Pyvisor containers before accepting work.
 
@@ -483,7 +495,7 @@ class RunscExecutor:
                     str(self._builder.runsc_root),
                     # Mirrors the launch above: the global mode flags must describe the
                     # same sandbox this exec joins.
-                    "--rootless",
+                    *self._rootless_arguments(),
                     "--platform=systrap",
                     "--network=none",
                     "exec",
@@ -534,16 +546,17 @@ class RunscExecutor:
                         str(self._config.runsc_binary),
                         "--root",
                         str(self._builder.runsc_root),
-                        # Pyvisor is deployed inside a rootless container, where this
-                        # process is UID 0 of its own user namespace. Without
-                        # --rootless, runsc concludes it is real root and takes the
-                        # minimal-chroot sandbox path, which needs CAP_SYS_ADMIN that a
-                        # nested user namespace cannot grant:
+                        # In the production rootless container, this process is UID 0
+                        # of its own user namespace. Without --rootless, runsc
+                        # concludes it is real root and takes the minimal-chroot
+                        # sandbox path, which needs CAP_SYS_ADMIN that a nested user
+                        # namespace cannot grant:
                         #   cannot create sandbox process: can't run sandbox process in
                         #   minimal chroot since we don't have CAP_SYS_ADMIN
-                        # --ignore-cgroups does not cover this; it addresses the
-                        # separate read-only /sys/fs/cgroup failure.
-                        "--rootless",
+                        # Direct non-root NixOS services let runsc select its normal
+                        # rootless path; forcing this flag there prevents the gofer
+                        # helper from re-executing itself.
+                        *self._rootless_arguments(),
                         "--ignore-cgroups",
                         "--platform=systrap",
                         "--network=none",
