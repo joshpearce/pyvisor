@@ -53,6 +53,7 @@ def create_app(config: AppConfig | None = None, jobs: JobService | None = None) 
     jobs = jobs or JobService(config)
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        await jobs.startup()
         yield
         await jobs.aclose()
 

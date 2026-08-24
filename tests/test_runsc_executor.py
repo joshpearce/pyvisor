@@ -95,6 +95,135 @@ def test_oci_bundle_cleanup_refuses_paths_outside_generated_root(tmp_path: Path)
 
 
 @pytest.mark.asyncio
+async def test_runsc_startup_reaps_only_a_verified_managed_orphan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rootfs = tmp_path / "rootfs"
+    rootfs.mkdir()
+    workspace = tmp_path / "sessions" / "chat_01" / "workspace"
+    workspace.mkdir(parents=True)
+    runsc = tmp_path / "runsc"
+    runsc.write_text("#!/bin/sh\n")
+    runsc.chmod(0o700)
+    config = AppConfig(
+        sessions_root=tmp_path / "sessions",
+        runtime_root=tmp_path / "runtime",
+        sandbox_rootfs=rootfs,
+        sandbox_image_identity="python-3.13.5@sha256:example",
+        runsc_binary=runsc,
+    )
+    builder = OciBundleBuilder(config)
+    bundle = builder.create(session_id="chat_01", workspace=workspace)
+    foreign_id = "foreign-runtime"
+    calls: list[tuple[object, ...]] = []
+
+    class Process:
+        def __init__(self, stdout: bytes = b"", returncode: int = 0) -> None:
+            self.stdout = stdout
+            self.returncode = returncode
+
+        async def wait(self) -> int:
+            return self.returncode
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return self.stdout, b""
+
+    async def create_subprocess_exec(*args: object, **_: object) -> Process:
+        calls.append(args)
+        if "list" in args:
+            return Process(f"{bundle.container_id}\n{foreign_id}\n".encode())
+        if "state" in args:
+            return Process(
+                json.dumps(
+                    {
+                        "id": bundle.container_id,
+                        "bundle": str(bundle.path.resolve()),
+                        "annotations": {
+                            "io.pyvisor.managed": "true",
+                            "io.pyvisor.session_id": "chat_01",
+                            "io.pyvisor.sandbox_image": "python-3.13.5@sha256:example",
+                        },
+                    }
+                ).encode()
+            )
+        return Process()
+
+    monkeypatch.setattr(
+        "pyvisor.runsc_executor.asyncio.create_subprocess_exec", create_subprocess_exec
+    )
+
+    assert await RunscExecutor(config).reconcile_orphans() == 1
+    assert not bundle.path.exists()
+    assert [call[3] for call in calls] == ["list", "state", "delete"]
+    delete_call = next(call for call in calls if "delete" in call)
+    assert delete_call[delete_call.index("delete") :] == (
+        "delete",
+        "--force",
+        bundle.container_id,
+    )
+
+
+@pytest.mark.asyncio
+async def test_runsc_startup_leaves_an_unverified_container_untouched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rootfs = tmp_path / "rootfs"
+    rootfs.mkdir()
+    workspace = tmp_path / "sessions" / "chat_01" / "workspace"
+    workspace.mkdir(parents=True)
+    runsc = tmp_path / "runsc"
+    runsc.write_text("#!/bin/sh\n")
+    runsc.chmod(0o700)
+    config = AppConfig(
+        sessions_root=tmp_path / "sessions",
+        runtime_root=tmp_path / "runtime",
+        sandbox_rootfs=rootfs,
+        sandbox_image_identity="python-3.13.5@sha256:example",
+        runsc_binary=runsc,
+    )
+    bundle = OciBundleBuilder(config).create(session_id="chat_01", workspace=workspace)
+    calls: list[tuple[object, ...]] = []
+
+    class Process:
+        returncode = 0
+
+        def __init__(self, stdout: bytes = b"") -> None:
+            self.stdout = stdout
+
+        async def wait(self) -> int:
+            return self.returncode
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return self.stdout, b""
+
+    async def create_subprocess_exec(*args: object, **_: object) -> Process:
+        calls.append(args)
+        if "list" in args:
+            return Process(f"{bundle.container_id}\n".encode())
+        return Process(
+            json.dumps(
+                {
+                    "id": bundle.container_id,
+                    "bundle": str(bundle.path.resolve()),
+                    "annotations": {
+                        "io.pyvisor.managed": "false",
+                        "io.pyvisor.session_id": "chat_01",
+                        "io.pyvisor.sandbox_image": "python-3.13.5@sha256:example",
+                    },
+                }
+            ).encode()
+        )
+
+    monkeypatch.setattr(
+        "pyvisor.runsc_executor.asyncio.create_subprocess_exec", create_subprocess_exec
+    )
+
+    assert await RunscExecutor(config).reconcile_orphans() == 0
+    assert bundle.path.exists()
+    assert not any("delete" in call for call in calls)
+
+
+@pytest.mark.asyncio
 async def test_runsc_executor_boots_a_warm_runtime_then_executes_a_command(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

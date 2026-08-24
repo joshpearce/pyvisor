@@ -163,7 +163,8 @@ Tasks:
   targeted exec-PID cancellation so a normal job cancellation preserves the
   session runtime.
 - Completed: label generated containers with managed, session, and image-identity OCI annotations.
-- Implement orphan cleanup on service startup.
+- Completed: reconcile startup orphans by force-deleting only verified managed
+  `runsc` containers and their generated bundles before accepting traffic.
 - Add runtime integration tests.
 
 More design needed: high.

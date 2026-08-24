@@ -99,6 +99,7 @@ async def test_completed_job_can_be_polled_after_service_restart(tmp_path: Path)
     submitted = await first.run("chat_01", "echo durable", None)
 
     restarted = JobService(config)
+    await restarted.startup()
     polled = await restarted.poll("chat_01", submitted.job_id)
 
     assert polled.status == "completed"
@@ -112,6 +113,7 @@ async def test_restart_terminalizes_interrupted_job_and_writes_one_trace(tmp_pat
     submitted = await first.run("chat_01", "wait", None)
 
     restarted = JobService(config)
+    await restarted.startup()
     polled = await restarted.poll("chat_01", submitted.job_id)
     trace_path = tmp_path / "sessions" / "chat_01" / "trace.jsonl"
 
@@ -119,6 +121,7 @@ async def test_restart_terminalizes_interrupted_job_and_writes_one_trace(tmp_pat
     assert polled.finished_at is not None
     assert json.loads(trace_path.read_text())["reason"] == "service_restart"
 
-    JobService(config)
+    later_restart = JobService(config)
+    await later_restart.startup()
     assert len(trace_path.read_text().splitlines()) == 1
     await first.aclose()

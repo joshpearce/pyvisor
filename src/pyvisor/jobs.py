@@ -51,6 +51,13 @@ class JobService:
         self._storage = SessionStorage(config.sessions_root, config.output_limit_bytes)
         self._live_jobs: dict[str, _LiveJob] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+
+    async def startup(self) -> None:
+        """Reconcile disposable executor state before the API accepts traffic."""
+        reconcile_orphans = getattr(self._executor, "reconcile_orphans", None)
+        if reconcile_orphans is not None:
+            removed = await reconcile_orphans()
+            LOGGER.info("runtime_orphans_reconciled", extra={"count": removed})
         for record in self._storage.reconcile_interrupted_jobs():
             LOGGER.warning(
                 "job_reconciled",

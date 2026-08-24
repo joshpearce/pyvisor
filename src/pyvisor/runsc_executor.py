@@ -16,9 +16,10 @@ import signal
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from pyvisor.config import AppConfig
+from pyvisor.ids import valid_session_id
 
 _OCI_VERSION = "1.0.2"
 
@@ -294,8 +295,139 @@ class RunscExecutor:
         self._runtimes: dict[str, _WarmRuntime] = {}
         self._runtime_locks: dict[str, asyncio.Lock] = {}
 
+    @staticmethod
+    def _managed_container_id(container_id: str) -> bool:
+        """Return whether an id has the exact service-generated form."""
+        if not container_id.startswith("pv-"):
+            return False
+        try:
+            parsed = UUID(container_id.removeprefix("pv-"))
+        except ValueError:
+            return False
+        return parsed.version == 4 and container_id == f"pv-{parsed}"
+
     def _runtime_lock(self, session_id: str) -> asyncio.Lock:
         return self._runtime_locks.setdefault(session_id, asyncio.Lock())
+
+    async def reconcile_orphans(self) -> int:
+        """Kill surviving, verified Pyvisor containers before accepting work.
+
+        The ``runsc --root`` directory is private to this service, but the
+        runtime's container listing alone is not enough authorization to
+        delete a container.  A candidate must have the service-generated id,
+        point to its expected generated bundle, and carry the managed OCI
+        annotations in both runtime state and ``config.json``.
+        """
+        runsc_binary = self._config.runsc_binary
+        if not runsc_binary.is_file() or not os.access(runsc_binary, os.X_OK):
+            raise RuntimeUnavailableError("configured runsc binary is not executable")
+        self._builder._prepare_runtime_root()
+        listed = await self._listed_container_ids()
+        removed = 0
+        for container_id in listed:
+            if not self._managed_container_id(container_id):
+                continue
+            bundle = await self._verified_orphan_bundle(container_id)
+            if bundle is None:
+                continue
+            await self._delete_orphan(bundle)
+            removed += 1
+        return removed
+
+    async def _listed_container_ids(self) -> list[str]:
+        command = await asyncio.create_subprocess_exec(
+            str(self._config.runsc_binary),
+            "--root",
+            str(self._builder.runsc_root),
+            "list",
+            "--quiet",
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await command.communicate()
+        if command.returncode != 0:
+            raise RuntimeUnavailableError("runsc could not enumerate existing runtimes")
+        try:
+            value = stdout.decode("ascii")
+        except UnicodeDecodeError as error:
+            raise RuntimeUnavailableError("runsc returned invalid container ids") from error
+        return list(dict.fromkeys(line for line in value.splitlines() if line))
+
+    async def _verified_orphan_bundle(self, container_id: str) -> OciBundle | None:
+        """Return the generated bundle only when runtime and disk agree on it."""
+        command = await asyncio.create_subprocess_exec(
+            str(self._config.runsc_binary),
+            "--root",
+            str(self._builder.runsc_root),
+            "state",
+            container_id,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await command.communicate()
+        if command.returncode != 0:
+            raise RuntimeUnavailableError("runsc could not inspect an existing runtime")
+        try:
+            state = json.loads(stdout)
+        except (TypeError, json.JSONDecodeError) as error:
+            raise RuntimeUnavailableError("runsc returned invalid container state") from error
+        if not isinstance(state, dict) or state.get("id") != container_id:
+            return None
+        annotations = state.get("annotations")
+        if not isinstance(annotations, dict):
+            return None
+        session_id = annotations.get("io.pyvisor.session_id")
+        image_identity = annotations.get("io.pyvisor.sandbox_image")
+        if (
+            annotations.get("io.pyvisor.managed") != "true"
+            or not isinstance(session_id, str)
+            or not valid_session_id(session_id)
+            or not isinstance(image_identity, str)
+            or not image_identity
+        ):
+            return None
+
+        bundle_path = self._builder.bundles_root / container_id
+        try:
+            bundle_path = _directory(bundle_path, label="orphan runtime bundle")
+            state_bundle = Path(state["bundle"]).resolve(strict=True)
+            config_path = bundle_path / "config.json"
+            if config_path.is_symlink():
+                return None
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, KeyError, OSError, TypeError, json.JSONDecodeError):
+            return None
+        if state_bundle != bundle_path or not isinstance(config, dict):
+            return None
+        config_annotations = config.get("annotations")
+        if not isinstance(config_annotations, dict):
+            return None
+        expected_annotations = {
+            "io.pyvisor.managed": "true",
+            "io.pyvisor.session_id": session_id,
+            "io.pyvisor.sandbox_image": image_identity,
+        }
+        if config_annotations != expected_annotations:
+            return None
+        return OciBundle(container_id=container_id, path=bundle_path)
+
+    async def _delete_orphan(self, bundle: OciBundle) -> None:
+        delete = await asyncio.create_subprocess_exec(
+            str(self._config.runsc_binary),
+            "--root",
+            str(self._builder.runsc_root),
+            "delete",
+            "--force",
+            bundle.container_id,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        if await delete.wait() != 0:
+            raise RuntimeUnavailableError("runsc could not delete an orphaned runtime")
+        self._builder.remove(bundle)
 
     async def start(
         self,
