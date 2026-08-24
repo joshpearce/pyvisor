@@ -26,7 +26,7 @@ def _integration_config(tmp_path: Path) -> AppConfig:
         pytest.skip(
             "requires PYVISOR_RUNSC_INTEGRATION=1 in a delegated non-root NixOS runsc context"
         )
-    if os.geteuid() == 0:
+    if RunscExecutor.runs_as_host_root():
         pytest.skip("the runsc backend deliberately refuses to run as root")
 
     required = (

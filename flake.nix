@@ -96,10 +96,58 @@
         ln -sfn bash "$out/bin/sh"
         install -Dm0444 ${imageManifest} "$out/etc/pyvisor-sandbox-image.json"
       '';
+      pyvisorApp = pythonPackages.buildPythonApplication {
+        pname = "pyvisor";
+        version = "0.1.0";
+        pyproject = true;
+        src = ./.;
+        build-system = [ pythonPackages.hatchling ];
+        dependencies = [
+          pythonPackages.fastapi
+          pythonPackages.pydantic
+          pythonPackages.uvicorn
+        ];
+        # The uv lock retains the exact development versions. This flake pins
+        # Nixpkgs separately, so relax only wheel metadata before building
+        # against that pinned Python package set.
+        postPatch = ''
+          substituteInPlace pyproject.toml \
+            --replace-fail "hatchling==1.27.0" "hatchling" \
+            --replace-fail "fastapi==0.115.12" "fastapi" \
+            --replace-fail "pydantic==2.10.6" "pydantic" \
+            --replace-fail "uvicorn==0.34.0" "uvicorn"
+        '';
+        doCheck = false;
+      };
+      pyvisorContainer = pkgs.dockerTools.buildLayeredImage {
+        name = "localhost/pyvisor";
+        tag = "0.1.0";
+        contents = [
+          pyvisorApp
+          pkgs.curl
+          pkgs.gvisor
+          sandboxRootfs
+        ];
+        config = {
+          Cmd = [ "${pyvisorApp}/bin/pyvisor" ];
+          Env = [
+            "PYTHONUNBUFFERED=1"
+            "PYVISOR_EXECUTION_BACKEND=runsc"
+            "PYVISOR_LISTEN_HOST=0.0.0.0"
+            "PYVISOR_RUNSC_BINARY=${pkgs.gvisor}/bin/runsc"
+            "PYVISOR_SANDBOX_ROOTFS=${sandboxRootfs}"
+            "PYVISOR_SESSIONS_ROOT=/var/lib/pyvisor/sessions"
+            "PYVISOR_RUNTIME_ROOT=/var/lib/pyvisor/runtime"
+          ];
+          ExposedPorts = { "8000/tcp" = { }; };
+        };
+      };
     in
     {
       packages.${system} = {
         sandbox-rootfs = sandboxRootfs;
+        pyvisor = pyvisorApp;
+        pyvisor-container = pyvisorContainer;
         default = sandboxRootfs;
       };
     };

@@ -14,6 +14,8 @@ def test_config_uses_documented_defaults(monkeypatch: pytest.MonkeyPatch) -> Non
     assert str(config.sessions_root) == "/var/lib/pyvisor/sessions"
     assert config.default_timeout_seconds == 300
     assert config.maximum_timeout_seconds == 3_600
+    assert config.listen_host == "127.0.0.1"
+    assert config.listen_port == 8000
 
 
 def test_config_rejects_default_timeout_above_maximum(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -29,3 +31,13 @@ def test_config_rejects_unknown_execution_backend(monkeypatch: pytest.MonkeyPatc
 
     with pytest.raises(ConfigurationError, match="EXECUTION_BACKEND"):
         AppConfig.from_environment()
+
+
+def test_config_reads_listener_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PYVISOR_LISTEN_HOST", "0.0.0.0")
+    monkeypatch.setenv("PYVISOR_LISTEN_PORT", "8080")
+
+    config = AppConfig.from_environment()
+
+    assert config.listen_host == "0.0.0.0"
+    assert config.listen_port == 8080

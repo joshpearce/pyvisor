@@ -143,4 +143,5 @@ app = create_app()
 
 def main() -> None:
     """Run the development HTTP server."""
-    uvicorn.run("pyvisor.app:app", host="127.0.0.1", port=8000, reload=False)
+    config = AppConfig.from_environment()
+    uvicorn.run(app, host=config.listen_host, port=config.listen_port, reload=False)

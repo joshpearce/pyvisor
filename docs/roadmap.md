@@ -276,23 +276,23 @@ Exit criteria:
 
 ## Stage 9: Deployment Artifacts
 
-Status: not started.
+Status: in progress. The repository now builds a pinned service OCI archive and
+documents a NAS-specific Quadlet deployment draft; ZFS creation and NAS
+configuration changes require operator review and application.
 
 Goal: deploy Pyvisor using the same NixOS/Quadlet/Tailscale sidecar pattern as
 existing services.
 
 Tasks:
 
-- Create the persistent ZFS dataset at `lildeet/nasdata/workloads/pyvisor`
-  under `lildeet/nasdata/workloads` and mount it for the service workload.
-- Add container build artifact.
-- Add NixOS service module or deploy snippet.
-- Add Quadlet network definition.
-- Add app container definition.
-- Add `tsnsrv-pyvisor` sidecar definition.
-- Add workload directory layout under `/workloads/pyvisor`.
-- Add health check and restart policy.
-- Document required mounts, including optional `/dev/kvm`.
+- Pending operator action: create the persistent ZFS dataset at
+  `lildeet/nasdata/workloads/pyvisor` under `lildeet/nasdata/workloads`.
+- Completed: add a reproducible Nix-built service OCI archive.
+- Completed: document a NixOS service/Quadlet deployment draft for review.
+- Completed: document the private Quadlet network, app, and `tsnsrv-pyvisor`
+  sidecar definitions.
+- Completed: document the `/workloads/pyvisor` layout, health check, restart
+  policy, required session mount, and intentionally absent `/dev/kvm` mount.
 
 More design needed: moderate.
 

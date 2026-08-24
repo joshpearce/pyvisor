@@ -299,6 +299,27 @@ class RunscExecutor:
         self._runtime_locks: dict[str, asyncio.Lock] = {}
 
     @staticmethod
+    def runs_as_host_root(uid_map_path: Path = Path("/proc/self/uid_map")) -> bool:
+        """Return whether effective UID 0 is also root outside this user namespace."""
+        if os.geteuid() != 0:
+            return False
+        try:
+            mappings = uid_map_path.read_text(encoding="ascii").splitlines()
+        except OSError:
+            return True
+        for mapping in mappings:
+            fields = mapping.split()
+            if len(fields) != 3:
+                continue
+            try:
+                inside, outside, count = (int(field) for field in fields)
+            except ValueError:
+                continue
+            if inside <= 0 < inside + count:
+                return outside == 0
+        return True
+
+    @staticmethod
     def _managed_container_id(container_id: str) -> bool:
         """Return whether an id has the exact service-generated form."""
         if not container_id.startswith("pv-"):
@@ -441,7 +462,7 @@ class RunscExecutor:
         stdout_path: Path,
         stderr_path: Path,
     ) -> RunscExecution:
-        if os.geteuid() == 0:
+        if self.runs_as_host_root():
             raise RuntimeUnavailableError("runsc backend must run as a non-root service account")
         if self.sandbox_image == "pyvisor-sandbox:unconfigured":
             raise RuntimeUnavailableError(

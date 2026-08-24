@@ -32,6 +32,18 @@ The pinned offline Python rootfs is defined by the repository Nix flake.  See
 `docs/design/sandbox-image.md` to build it, inspect its manifest, and derive
 the image identity used in traces.
 
+## Deployment image
+
+The Nix flake also builds a loadable OCI archive for the Pyvisor service:
+
+```sh
+nix build .#pyvisor-container
+```
+
+It contains the service, direct `runsc` binary, and pinned sandbox rootfs. See
+`docs/design/nixos-deployment.md` for the reviewed NixOS/Quadlet deployment
+draft and the separate NAS changes that must be applied before deployment.
+
 ## NixOS `runsc` integration test
 
 The direct-runtime integration test is deliberately disabled unless explicitly

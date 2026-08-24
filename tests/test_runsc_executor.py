@@ -16,6 +16,24 @@ from pyvisor.runsc_executor import (
 )
 
 
+def test_runsc_root_check_accepts_rootless_container_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    uid_map = tmp_path / "uid_map"
+    uid_map.write_text("0 1219 1\n1 363144 65536\n")
+    monkeypatch.setattr("pyvisor.runsc_executor.os.geteuid", lambda: 0)
+
+    assert not RunscExecutor.runs_as_host_root(uid_map)
+
+
+def test_runsc_root_check_rejects_host_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    uid_map = tmp_path / "uid_map"
+    uid_map.write_text("0 0 4294967295\n")
+    monkeypatch.setattr("pyvisor.runsc_executor.os.geteuid", lambda: 0)
+
+    assert RunscExecutor.runs_as_host_root(uid_map)
+
+
 def test_oci_bundle_has_fixed_restrictive_sandbox_configuration(tmp_path: Path) -> None:
     workspace = tmp_path / "sessions" / "chat_01" / "workspace"
     workspace.mkdir(parents=True)

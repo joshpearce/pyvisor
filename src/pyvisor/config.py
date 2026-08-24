@@ -53,6 +53,8 @@ class AppConfig:
     runsc_binary: Path = Path("/usr/local/bin/runsc")
     sandbox_rootfs: Path = Path("/var/lib/pyvisor/rootfs")
     sandbox_image_identity: str = "pyvisor-sandbox:unconfigured"
+    listen_host: str = "127.0.0.1"
+    listen_port: int = 8000
     log_level: str = "INFO"
 
     @classmethod
@@ -79,6 +81,8 @@ class AppConfig:
             sandbox_image_identity=os.getenv(
                 "PYVISOR_SANDBOX_IMAGE_IDENTITY", "pyvisor-sandbox:unconfigured"
             ),
+            listen_host=os.getenv("PYVISOR_LISTEN_HOST", "127.0.0.1"),
+            listen_port=_positive_int("PYVISOR_LISTEN_PORT", 8000),
             log_level=os.getenv("PYVISOR_LOG_LEVEL", "INFO").upper(),
         )
         if config.default_timeout_seconds > config.maximum_timeout_seconds:
@@ -92,4 +96,6 @@ class AppConfig:
             raise ConfigurationError("PYVISOR_EXECUTION_BACKEND must be either 'local' or 'runsc'")
         if not config.sandbox_image_identity:
             raise ConfigurationError("PYVISOR_SANDBOX_IMAGE_IDENTITY must not be empty")
+        if not config.listen_host:
+            raise ConfigurationError("PYVISOR_LISTEN_HOST must not be empty")
         return config
