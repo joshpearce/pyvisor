@@ -25,16 +25,17 @@ mount owned by the unprivileged sandbox user, and `--network=none` with
   unreachable`; and
 - `runsc list` was empty after the one-shot process exited.
 
-The ordinary agent launcher remains deliberately confined with
-`NoNewPrivileges=1` and no effective capabilities; it cannot be used for this
-integration suite.  The earlier rootless attempt from that context reached
-gofer creation but was denied `EPERM`.  The NixOS test/service context must
-instead provide the permissions exercised by the successful privileged probe.
+On 2026-08-24, the NixOS `pyvisor-test` service passed the opt-in integration
+suite using true rootless gVisor. Its OCI bundle maps only in-sandbox UID/GID 0
+to the dedicated non-root service account, uses `--ignore-cgroups`, and omits a
+network namespace because true-rootless gVisor does not support one. `runsc`
+still receives `--network=none`, so the sandbox has no network. The test booted
+a warm sandbox, executed Python twice, persisted the workspace, and reaped the
+runtime.
 
-The privileged context has a writable cgroup-v2 hierarchy and ran the smoke
-test without `--ignore-cgroups`.  This proves cgroup setup is reachable, but
-does not yet prove that Pyvisor's configured CPU, memory, disk, and pids limits
-are applied correctly; those remain required integration tests.
+This deployment deliberately has aggregate rather than per-sandbox resource
+limits: the systemd service caps all of its sandboxes together. Per-session CPU,
+memory, PID, and disk limits remain future work.
 
 The pinned Stage 6 rootfs was built successfully from this repository's flake
 on the host.  Its manifest, Python entry point, and shell compatibility links
@@ -50,14 +51,12 @@ the integration suite; run it from the delegated service or VM-test context.
    Record its version or Nix store derivation in deployment metadata and session
    traces.  The currently installed package reports `VERSION_MISSING`, so a
    derivation identity is especially important.
-2. Run Pyvisor under an account and service policy that permit the selected
-   `runsc` mode.  If rootless mode is used, it must permit user namespaces,
-   mappings for the service UID/GID, and the gofer's required namespace/chroot
-   operations.  Do not enable `TESTONLY-unsafe-nonroot`.
-3. Delegate a writable cgroup-v2 subtree with CPU, memory, and pids controllers
-   to the service (for example through an appropriate systemd service policy).
-   The runtime backend must create each sandbox/job cgroup inside that subtree
-   and must fail closed when it cannot apply configured limits.
+2. Run Pyvisor under a dedicated non-root account whose service policy permits
+   user namespaces. The rootless OCI bundle maps only in-sandbox UID/GID 0 to
+   that account's effective UID/GID; it must not grant additional host-ID
+   mappings or enable `TESTONLY-unsafe-nonroot`.
+3. Apply CPU, memory, and task limits to the enclosing systemd service. In the
+   rootless design these are aggregate Pyvisor limits, not per-sandbox cgroups.
 4. Give the service a private, owner-writable `runsc --root` directory on the
    host filesystem.  The directory holds control sockets and runtime state and
    is disposable; it must not be a session directory.
@@ -71,22 +70,21 @@ the integration suite; run it from the delegated service or VM-test context.
 
 ## Baseline runtime flags
 
-The future backend begins each invocation with an explicit private runtime root,
-`--platform=systrap`, and `--network=none`.  OCI configuration supplies a
-read-only rootfs, drops capabilities, disables privilege escalation, and mounts
-only the session workspace plus bounded scratch as writable paths.  It must not
-pass `--ignore-cgroups`, choose `ptrace`, use `--TESTONLY-unsafe-nonroot`, or
-silently fall back to host networking.
+The rootless backend begins each invocation with an explicit private runtime
+root, `--ignore-cgroups`, `--platform=systrap`, and `--network=none`. OCI
+configuration supplies a single-UID/GID user namespace, a read-only rootfs,
+empty capabilities, no privilege escalation, and only the session workspace
+plus bounded scratch as writable paths. It must not choose `ptrace`, use
+`TESTONLY-unsafe-nonroot`, grant additional host-ID mappings, or silently fall
+back to host networking.
 
 ## Next validation sequence
 
-1. Provision the service account and delegated cgroup subtree in NixOS.
-2. Repeat the passed `runsc run` isolation smoke test using the built rootfs
-   from the delegated NixOS service or VM-test context.
-4. Keep a trivial init alive; prove `runsc exec` can run separate commands
-   against the same workspace.
-5. Add resource, cancellation, reaper, and restart-reconciliation tests before
-   accepting untrusted commands.
+1. Keep the service-level CPU, memory, and task limits applied in NixOS.
+2. Extend the rootless integration suite with cancellation and restart
+   reconciliation coverage.
+3. Decide whether per-session resource fairness is needed before adding a
+   privileged cgroup broker.
 
 ## Running the Stage 5 integration test
 
@@ -97,7 +95,7 @@ between execs, and confirms cleanup removes the runtime while preserving the
 session directory.  It is opt-in so ordinary development shells never attempt
 to launch gVisor.
 
-From the delegated non-root NixOS service or VM-test context, provide the
+From the rootless non-root NixOS service or VM-test context, provide the
 pinned rootfs and its recorded image identity, then run:
 
 ```sh

@@ -107,10 +107,11 @@ class OciBundleBuilder:
             },
             "process": {
                 "terminal": False,
-                # The service must run as a dedicated non-root account.  Using
-                # its numeric ids preserves a private, owner-writable workspace
-                # mount without making it world-writable.
-                "user": {"uid": os.getuid(), "gid": os.getgid()},
+                # Root inside the sandbox maps to the dedicated non-root
+                # service account through the single-ID user namespace below.
+                # This keeps the host workspace owner-writable without giving
+                # the sandbox any additional host UID or GID mappings.
+                "user": {"uid": 0, "gid": 0},
                 # The init deliberately does no user work.  ``runsc exec``
                 # supplies a separately scoped process for every job.
                 "args": [
@@ -164,12 +165,14 @@ class OciBundleBuilder:
             ],
             "linux": {
                 "namespaces": [
+                    {"type": "user"},
                     {"type": "pid"},
                     {"type": "ipc"},
                     {"type": "uts"},
                     {"type": "mount"},
-                    {"type": "network"},
                 ],
+                "uidMappings": [{"containerID": 0, "hostID": os.geteuid(), "size": 1}],
+                "gidMappings": [{"containerID": 0, "hostID": os.getegid(), "size": 1}],
             },
         }
 
@@ -467,7 +470,7 @@ class RunscExecutor:
                     "--env",
                     "TMPDIR=/tmp",
                     "--user",
-                    f"{os.getuid()}:{os.getgid()}",
+                    "0:0",
                     "--pid-file",
                     str(pid_path),
                     runtime.bundle.container_id,
@@ -499,24 +502,33 @@ class RunscExecutor:
                 return existing
             bundle = self._builder.create(session_id=session_id, workspace=workspace)
             try:
-                launcher = await asyncio.create_subprocess_exec(
-                    str(self._config.runsc_binary),
-                    "--root",
-                    str(self._builder.runsc_root),
-                    "--platform=systrap",
-                    "--network=none",
-                    "run",
-                    "--detach",
-                    "--bundle",
-                    str(bundle.path),
-                    bundle.container_id,
-                    stdin=asyncio.subprocess.DEVNULL,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-                if await launcher.wait() != 0:
-                    raise RuntimeUnavailableError("runsc could not start the warm session runtime")
+                launcher_stderr = bundle.path / "runsc-launch.stderr"
+                with launcher_stderr.open("wb") as stderr:
+                    launcher = await asyncio.create_subprocess_exec(
+                        str(self._config.runsc_binary),
+                        "--root",
+                        str(self._builder.runsc_root),
+                        "--ignore-cgroups",
+                        "--platform=systrap",
+                        "--network=none",
+                        "run",
+                        "--detach",
+                        "--bundle",
+                        str(bundle.path),
+                        bundle.container_id,
+                        stdin=asyncio.subprocess.DEVNULL,
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=stderr,
+                        start_new_session=True,
+                    )
+                    if await launcher.wait() != 0:
+                        detail = launcher_stderr.read_text(
+                            encoding="utf-8", errors="replace"
+                        ).strip()
+                        message = "runsc could not start the warm session runtime"
+                        if detail:
+                            message = f"{message}: {detail}"
+                        raise RuntimeUnavailableError(message)
             except Exception:
                 self._builder.remove(bundle)
                 raise

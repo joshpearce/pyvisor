@@ -40,7 +40,7 @@ def test_oci_bundle_has_fixed_restrictive_sandbox_configuration(tmp_path: Path) 
         "io.pyvisor.session_id": "chat_01",
     }
     assert value["root"] == {"path": "rootfs", "readonly": True}
-    assert value["process"]["user"] == {"uid": os.getuid(), "gid": os.getgid()}
+    assert value["process"]["user"] == {"uid": 0, "gid": 0}
     assert value["process"]["args"] == [
         "/bin/sh",
         "-c",
@@ -57,10 +57,16 @@ def test_oci_bundle_has_fixed_restrictive_sandbox_configuration(tmp_path: Path) 
     assert {entry["type"] for entry in value["linux"]["namespaces"]} == {
         "ipc",
         "mount",
-        "network",
         "pid",
+        "user",
         "uts",
     }
+    assert value["linux"]["uidMappings"] == [
+        {"containerID": 0, "hostID": os.geteuid(), "size": 1}
+    ]
+    assert value["linux"]["gidMappings"] == [
+        {"containerID": 0, "hostID": os.getegid(), "size": 1}
+    ]
     mounts = {entry["destination"]: entry for entry in value["mounts"]}
     assert mounts["/workspace"] == {
         "destination": "/workspace",
@@ -271,11 +277,11 @@ async def test_runsc_executor_boots_a_warm_runtime_then_executes_a_command(
         str(runsc),
         "--root",
         str(tmp_path / "runtime" / "runsc"),
+        "--ignore-cgroups",
         "--platform=systrap",
         "--network=none",
         "run",
         "--detach",
-        "--bundle",
     )
     assert calls[1][0:6] == (
         str(runsc),
@@ -339,7 +345,13 @@ async def test_runsc_executor_reuses_the_session_runtime_for_later_jobs(
         stderr_path=tmp_path / "second.stderr",
     )
 
-    assert [call[5] for call in calls] == ["run", "exec", "exec"]
+    assert calls[0][3:7] == (
+        "--ignore-cgroups",
+        "--platform=systrap",
+        "--network=none",
+        "run",
+    )
+    assert [call[5] for call in calls[1:]] == ["exec", "exec"]
     container_id = calls[0][-1]
     assert container_id in calls[1]
     assert container_id in calls[2]

@@ -45,10 +45,10 @@ local-process stage onward.
 
 `PYVISOR_EXECUTION_BACKEND=runsc` selects the direct gVisor backend.  It also
 requires `PYVISOR_RUNSC_BINARY`, `PYVISOR_SANDBOX_ROOTFS`, and a non-placeholder
-`PYVISOR_SANDBOX_IMAGE_IDENTITY` appropriate to the deployment.  The service
-must run as a dedicated non-root account: the generated OCI process uses that
-account's numeric UID/GID so the private session workspace remains writable
-without being made world-writable.
+`PYVISOR_SANDBOX_IMAGE_IDENTITY` appropriate to the deployment. The service
+runs as a dedicated non-root account. Its rootless OCI bundle maps only
+in-sandbox UID/GID 0 to that account so the private session workspace remains
+writable without being made world-writable.
 
 ## Components and ownership
 

@@ -145,10 +145,11 @@ Exit criteria:
 
 ## Stage 5: OCI Bundle And `runsc` Runtime Backend
 
-Status: in progress.  A privileged NixOS smoke test passed with `runsc`,
-`systrap`, no network, a read-only rootfs, and a writable workspace.  The
-pinned Python rootfs, OCI bundle generator, service deployment, and full
-resource/lifecycle integration suite remain.  See `docs/design/nixos-runtime.md`.
+Status: in progress. A NixOS rootless integration test passed with `runsc`,
+`systrap`, no network, a read-only rootfs, and a writable workspace. The
+rootless service uses aggregate systemd resource limits; per-sandbox resource
+limits and the remaining lifecycle/security coverage are still future work.
+See `docs/design/nixos-runtime.md`.
 
 Goal: execute jobs inside real gVisor sandboxes using direct `runsc run`.
 
@@ -167,16 +168,16 @@ Tasks:
   `runsc` containers and their generated bundles before accepting traffic.
 - Completed: add host-gated runtime integration tests for warm boot, Python
   execution, workspace persistence, and orderly runtime cleanup.
+- Completed: run that suite from a dedicated rootless NixOS service using a
+  single-UID OCI user namespace and no sandbox network.
 
 More design needed: high.
 
 Open questions:
 
-- Exact mechanism for executing multiple jobs into a warm direct-`runsc`
-  container.
 - Rootfs/image preparation flow for OCI bundle generation.
 - How disk quotas are enforced on the NixOS deployment host.
-- How CPU/memory limits map into direct `runsc` config.
+- Whether the aggregate systemd limits need future per-session fairness.
 
 Exit criteria:
 
@@ -201,9 +202,8 @@ Tasks:
 - Completed: add the generated flake lock, which pins the exact versions.
 - Completed: build the artifact from the pinned flake and verify its manifest,
   NAR identity, Python entry point, and shell compatibility links on NixOS.
-- Blocked: run the opt-in NixOS `runsc` integration suite from a delegated
-  non-root service or VM-test cgroup; the ordinary login session cannot create
-  the runtime cgroup.
+- Completed: run the opt-in NixOS `runsc` integration suite through the
+  dedicated rootless service, validating the built rootfs end to end.
 - Pending: confirm `pip install` fails legibly without network in the NixOS
   security suite.
 - Completed: document deriving an image identity from the rootfs NAR hash;
