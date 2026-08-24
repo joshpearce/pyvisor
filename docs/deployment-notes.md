@@ -110,18 +110,31 @@ sandbox therefore takes down the whole service, not just its own job — every
 live session dies together. Any per-job budget enforced in-process is the only
 thing standing between one bad submission and that outcome.
 
-## Known bug: the executor omits `--rootless` (blocks all job execution)
+## Fixed: the executor omitted `--rootless`
 
-**Status as of 2026-08-24: no job can run on this deployment.** Every submission
-terminates immediately with `status: "runtime_error"`,
+**Resolved in `743ef2e`, verified on the NAS 2026-08-24.** Jobs now run:
+
+```json
+{"status":"completed","command":"python --version","exit_code":0,
+ "stdout":{"text":"Python 3.13.14\n"}}
+```
+
+That interpreter version is the sandbox rootfs's own
+(`pyvisor-sandbox-rootfs-3.13.14`), confirming the job executed inside the
+gVisor sandbox built from the pinned derivation rather than in the service
+container.
+
+### What the bug was
+
+Every submission terminated immediately with `status: "runtime_error"`,
 `reason: "executor_start_failed"`, a null exit code and empty output streams.
 
-The environment is not at fault. gVisor starts fine nested inside the rootless
-container; it is the flag set in `runsc_executor.py` that fails. Verified
+The environment was never at fault. gVisor starts fine nested inside the
+rootless container; the flag set in `runsc_executor.py` was wrong. Verified
 directly in the running container:
 
 ```
-a) --ignore-cgroups --platform=systrap --network=none   (pyvisor's exact launch flags)
+a) --ignore-cgroups --platform=systrap --network=none   (the old launch flags)
    -> creating container: cannot create sandbox: cannot create sandbox process:
       can't run sandbox process in minimal chroot since we don't have CAP_SYS_ADMIN
 
@@ -130,24 +143,21 @@ b) --rootless --ignore-cgroups --platform=systrap --network=none
 ```
 
 Inside the container the process is UID 0 of its own user namespace, so runsc
-concludes it is real root and takes the minimal-chroot sandbox path, which
+concluded it was real root and took the minimal-chroot sandbox path, which
 requires `CAP_SYS_ADMIN`. A nested user namespace cannot grant that.
 `--ignore-cgroups` does not help — it addresses a different failure (a
 read-only `/sys/fs/cgroup`, which is what surfaces when neither flag is passed).
+Both flags are needed.
 
-### The fix
+`--rootless` is now passed on the warm-runtime launch and mirrored onto
+`runsc exec`, so the global mode flags describe the same sandbox the exec joins.
+Both paths are exercised by a completed job: pyvisor boots the runtime with
+`run --detach` and runs each command through `exec`.
 
-Add `--rootless` to the warm-runtime launch in `_runtime()`
-(`runsc_executor.py`, alongside the existing `--ignore-cgroups`). Consider
-mirroring it — and `--ignore-cgroups` — onto the `runsc exec` invocation, which
-currently passes neither; that half is untested here, since the launch fails
-first.
+### Still open: the failure detail is captured and then deleted
 
-Whether `--rootless` should be unconditional or driven by config is a design
-call. It is correct whenever pyvisor runs inside any container, which is the
-only way this deployment runs it.
-
-### Related: the failure detail is captured and then deleted
+Unchanged by the fix above, and the reason this took an afternoon rather than a
+minute.
 
 `_runtime()` writes runsc's stderr to `runsc-launch.stderr` in the bundle and
 folds it into the `RuntimeUnavailableError` message — exactly the right thing.
@@ -156,24 +166,23 @@ that file, and `job_start_failed` logs only a `job_id`. The one artifact that
 explains the failure is discarded at the moment it is needed, and nothing
 reaches the operator through the API, the durable job record, or the logs.
 
-Diagnosing this required shelling into the container and running runsc by hand.
-Preserving the bundle on startup failure, or logging the captured detail,
-would reduce that to reading a log line. `reason: "executor_start_failed"` is
-the right granularity for the state record — it correctly separates "the
-executor never started" from "the command failed" — it just stops one level
-short of why.
+Diagnosing this required shelling into the container and running runsc by hand
+to reproduce. Preserving the bundle on startup failure, or logging the captured
+detail, would reduce that to reading a log line.
+`reason: "executor_start_failed"` is the right granularity for the state record
+— it correctly separates "the executor never started" from "the command failed"
+— it just stops one level short of why.
 
 ## Verified working
 
-Nested `runsc` itself, contrary to the original deployment review's concern that
-it would need `PodmanArgs=`, seccomp/AppArmor relaxation, or cgroup delegation
-from the Quadlet unit. It needs none of those. Nothing on the NixOS side has to
-change for sandboxes to run.
-
-The sandbox provenance annotation also works end to end: durable job records
-carry
-`"sandbox_image": "pyvisor-sandbox-python-3.13@1lmzlrmxg18p6q4lp72msjl4m94s73kh-pyvisor-sandbox-rootfs-3.13.14"`,
-the real store path of the rootfs that would have run the code.
+- Nested `runsc`, contrary to the original deployment review's concern that it
+  would need `PodmanArgs=`, seccomp/AppArmor relaxation, or cgroup delegation
+  from the Quadlet unit. It needs none of those, and nothing on the NixOS side
+  had to change for sandboxes to run.
+- End-to-end job execution through both the `run --detach` and `exec` paths.
+- The sandbox provenance annotation: durable job records carry
+  `"sandbox_image": "pyvisor-sandbox-python-3.13@1lmzlrmxg18p6q4lp72msjl4m94s73kh-pyvisor-sandbox-rootfs-3.13.14"`,
+  the real store path of the rootfs that ran the code.
 
 ## Debugging
 
