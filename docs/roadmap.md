@@ -158,9 +158,10 @@ Tasks:
 - Completed: mount the session workspace at fixed in-container `/workspace`.
 - Completed: invoke `runsc` with `--network=none` and `--platform=systrap`.
 - Completed: generate a read-only base filesystem with only workspace and bounded scratch writable.
-- Hold warm containers open between jobs.
-- Exec jobs into warm containers or define the equivalent direct-`runsc`
-  mechanism.
+- Completed: hold a per-session warm container open between jobs.
+- Completed: execute jobs with `runsc exec` in the warm container, including
+  targeted exec-PID cancellation so a normal job cancellation preserves the
+  session runtime.
 - Completed: label generated containers with managed, session, and image-identity OCI annotations.
 - Implement orphan cleanup on service startup.
 - Add runtime integration tests.

@@ -285,3 +285,6 @@ class JobService:
                 live.record, status="runtime_error", reason="service_shutdown"
             )
         await asyncio.gather(*(live.watcher for live in live_jobs), return_exceptions=True)
+        close = getattr(self._executor, "aclose", None)
+        if close is not None:
+            await close()

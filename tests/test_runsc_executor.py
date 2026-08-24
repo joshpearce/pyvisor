@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -28,9 +29,7 @@ def test_oci_bundle_has_fixed_restrictive_sandbox_configuration(tmp_path: Path) 
         scratch_disk_limit_bytes=123_456,
     )
 
-    bundle = OciBundleBuilder(config).create(
-        session_id="chat_01", workspace=workspace, command="python -c 'print(2 + 2)'"
-    )
+    bundle = OciBundleBuilder(config).create(session_id="chat_01", workspace=workspace)
 
     value = json.loads((bundle.path / "config.json").read_text())
     assert bundle.container_id.startswith("pv-")
@@ -42,7 +41,11 @@ def test_oci_bundle_has_fixed_restrictive_sandbox_configuration(tmp_path: Path) 
     }
     assert value["root"] == {"path": "rootfs", "readonly": True}
     assert value["process"]["user"] == {"uid": os.getuid(), "gid": os.getgid()}
-    assert value["process"]["args"] == ["/bin/bash", "-lc", "python -c 'print(2 + 2)'"]
+    assert value["process"]["args"] == [
+        "/bin/sh",
+        "-c",
+        "trap 'exit 0' TERM INT; while :; do sleep 2147483647 & wait $!; done",
+    ]
     assert value["process"]["capabilities"] == {
         "ambient": [],
         "bounding": [],
@@ -79,7 +82,7 @@ def test_oci_bundle_cleanup_refuses_paths_outside_generated_root(tmp_path: Path)
     builder = OciBundleBuilder(config)
     workspace = tmp_path / "sessions" / "chat_01" / "workspace"
     workspace.mkdir(parents=True)
-    bundle = builder.create(session_id="chat_01", workspace=workspace, command="true")
+    bundle = builder.create(session_id="chat_01", workspace=workspace)
 
     builder.remove(bundle)
 
@@ -92,7 +95,7 @@ def test_oci_bundle_cleanup_refuses_paths_outside_generated_root(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_runsc_executor_uses_direct_systrap_no_network_invocation(
+async def test_runsc_executor_boots_a_warm_runtime_then_executes_a_command(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rootfs = tmp_path / "rootfs"
@@ -135,13 +138,152 @@ async def test_runsc_executor_uses_direct_systrap_no_network_invocation(
         stderr_path=tmp_path / "stderr.bin",
     )
 
-    assert calls[0][0:7] == (
+    assert calls[0][0:8] == (
         str(runsc),
         "--root",
         str(tmp_path / "runtime" / "runsc"),
         "--platform=systrap",
         "--network=none",
         "run",
+        "--detach",
         "--bundle",
     )
+    assert calls[1][0:6] == (
+        str(runsc),
+        "--root",
+        str(tmp_path / "runtime" / "runsc"),
+        "--platform=systrap",
+        "--network=none",
+        "exec",
+    )
+    assert calls[1][-3:] == ("/bin/bash", "-lc", "true")
     await execution.wait()
+
+
+@pytest.mark.asyncio
+async def test_runsc_executor_reuses_the_session_runtime_for_later_jobs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rootfs = tmp_path / "rootfs"
+    rootfs.mkdir()
+    workspace = tmp_path / "sessions" / "chat_01" / "workspace"
+    workspace.mkdir(parents=True)
+    runsc = tmp_path / "runsc"
+    runsc.write_text("#!/bin/sh\n")
+    runsc.chmod(0o700)
+    config = AppConfig(
+        sessions_root=tmp_path / "sessions",
+        runtime_root=tmp_path / "runtime",
+        sandbox_rootfs=rootfs,
+        sandbox_image_identity="python-3.13.5@sha256:example",
+        runsc_binary=runsc,
+    )
+    calls: list[tuple[object, ...]] = []
+
+    class Process:
+        pid = 1
+        returncode = 0
+
+        async def wait(self) -> int:
+            return 0
+
+    async def create_subprocess_exec(*args: object, **_: object) -> Process:
+        calls.append(args)
+        return Process()
+
+    monkeypatch.setattr(
+        "pyvisor.runsc_executor.asyncio.create_subprocess_exec", create_subprocess_exec
+    )
+    executor = RunscExecutor(config)
+    first = await executor.start(
+        "printf first",
+        session_id="chat_01",
+        workspace=workspace,
+        stdout_path=tmp_path / "first.stdout",
+        stderr_path=tmp_path / "first.stderr",
+    )
+    second = await executor.start(
+        "printf second",
+        session_id="chat_01",
+        workspace=workspace,
+        stdout_path=tmp_path / "second.stdout",
+        stderr_path=tmp_path / "second.stderr",
+    )
+
+    assert [call[5] for call in calls] == ["run", "exec", "exec"]
+    container_id = calls[0][-1]
+    assert container_id in calls[1]
+    assert container_id in calls[2]
+    await first.wait()
+    await second.wait()
+
+
+@pytest.mark.asyncio
+async def test_runsc_exec_cancellation_signals_only_the_exec_pid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rootfs = tmp_path / "rootfs"
+    rootfs.mkdir()
+    workspace = tmp_path / "sessions" / "chat_01" / "workspace"
+    workspace.mkdir(parents=True)
+    runsc = tmp_path / "runsc"
+    runsc.write_text("#!/bin/sh\n")
+    runsc.chmod(0o700)
+    config = AppConfig(
+        sessions_root=tmp_path / "sessions",
+        runtime_root=tmp_path / "runtime",
+        sandbox_rootfs=rootfs,
+        sandbox_image_identity="python-3.13.5@sha256:example",
+        runsc_binary=runsc,
+    )
+    calls: list[tuple[object, ...]] = []
+
+    class Process:
+        pid = 1
+
+        def __init__(self, returncode: int | None) -> None:
+            self.returncode = returncode
+            self.finished = asyncio.Event()
+
+        async def wait(self) -> int:
+            if self.returncode is None:
+                await self.finished.wait()
+            assert self.returncode is not None
+            return self.returncode
+
+    exec_process = Process(None)
+
+    async def create_subprocess_exec(*args: object, **_: object) -> Process:
+        calls.append(args)
+        if "exec" in args:
+            pid_path = Path(str(args[args.index("--pid-file") + 1]))
+            pid_path.write_text("42\n")
+            return exec_process
+        if "kill" in args:
+            exec_process.returncode = 143
+            exec_process.finished.set()
+        return Process(0)
+
+    monkeypatch.setattr(
+        "pyvisor.runsc_executor.asyncio.create_subprocess_exec", create_subprocess_exec
+    )
+    executor = RunscExecutor(config)
+    execution = await executor.start(
+        "sleep 10",
+        session_id="chat_01",
+        workspace=workspace,
+        stdout_path=tmp_path / "stdout.bin",
+        stderr_path=tmp_path / "stderr.bin",
+    )
+
+    assert await execution.terminate() == 143
+    kill_call = next(call for call in calls if "kill" in call)
+    assert kill_call[kill_call.index("kill") :] == (
+        "kill",
+        "--pid",
+        "42",
+        calls[0][-1],
+        "SIGTERM",
+    )
+    assert not any("delete" in call for call in calls)
+    await executor.aclose()

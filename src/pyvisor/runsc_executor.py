@@ -1,8 +1,9 @@
-"""Direct ``runsc run`` backend and restrictive OCI bundle generation.
+"""Direct ``runsc`` backend with per-session warm containers.
 
-This backend deliberately starts one disposable container per job for now.  A
-warm-container/``runsc exec`` lifecycle needs a separately validated init and
-reconciliation design; it must not be inferred from the local-process backend.
+Each session gets a restrictive OCI bundle whose init only waits for signals.
+Commands then run through ``runsc exec``.  This keeps the durable workspace
+mounted in one sandbox between jobs without treating a local process as an
+equivalent lifecycle model.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import json
 import os
 import shutil
 import signal
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
@@ -19,6 +21,8 @@ from uuid import uuid4
 from pyvisor.config import AppConfig
 
 _OCI_VERSION = "1.0.2"
+
+
 class RuntimeUnavailableError(RuntimeError):
     """The configured gVisor runtime or rootfs cannot be used safely."""
 
@@ -34,7 +38,7 @@ class OciBundle:
 def _directory(path: Path, *, label: str) -> Path:
     """Resolve an existing trusted directory without accepting a symlink."""
     try:
-        details = path.lstat()
+        path.lstat()
     except FileNotFoundError as error:
         raise RuntimeUnavailableError(f"{label} does not exist") from error
     if path.is_symlink() or not path.is_dir():
@@ -63,8 +67,8 @@ class OciBundleBuilder:
             directory.mkdir(mode=0o700, exist_ok=True)
             _directory(directory, label="runtime directory")
 
-    def create(self, *, session_id: str, workspace: Path, command: str) -> OciBundle:
-        """Generate a bundle whose writable host mount is only ``workspace``."""
+    def create(self, *, session_id: str, workspace: Path) -> OciBundle:
+        """Generate a warm bundle whose writable host mount is only ``workspace``."""
         self._prepare_runtime_root()
         workspace = _directory(workspace, label="workspace")
         rootfs = _directory(self._config.sandbox_rootfs, label="sandbox rootfs")
@@ -78,7 +82,7 @@ class OciBundleBuilder:
             config_path = bundle_path / "config.json"
             config_path.write_text(
                 json.dumps(
-                    self._config_value(session_id=session_id, workspace=workspace, command=command),
+                    self._config_value(session_id=session_id, workspace=workspace),
                     sort_keys=True,
                     separators=(",", ":"),
                 )
@@ -91,7 +95,7 @@ class OciBundleBuilder:
             raise
         return OciBundle(container_id=container_id, path=bundle_path)
 
-    def _config_value(self, *, session_id: str, workspace: Path, command: str) -> dict[str, object]:
+    def _config_value(self, *, session_id: str, workspace: Path) -> dict[str, object]:
         scratch_size = self._config.scratch_disk_limit_bytes
         return {
             "ociVersion": _OCI_VERSION,
@@ -106,7 +110,13 @@ class OciBundleBuilder:
                 # its numeric ids preserves a private, owner-writable workspace
                 # mount without making it world-writable.
                 "user": {"uid": os.getuid(), "gid": os.getgid()},
-                "args": ["/bin/bash", "-lc", command],
+                # The init deliberately does no user work.  ``runsc exec``
+                # supplies a separately scoped process for every job.
+                "args": [
+                    "/bin/sh",
+                    "-c",
+                    "trap 'exit 0' TERM INT; while :; do sleep 2147483647 & wait $!; done",
+                ],
                 "env": [
                     "HOME=/workspace",
                     "PATH=/usr/local/bin:/usr/bin:/bin",
@@ -173,8 +183,16 @@ class OciBundleBuilder:
         shutil.rmtree(bundle.path)
 
 
+@dataclass(frozen=True, slots=True)
+class _WarmRuntime:
+    """The disposable runtime state retained for one session."""
+
+    session_id: str
+    bundle: OciBundle
+
+
 class RunscExecution:
-    """A direct ``runsc run`` invocation for one OCI bundle."""
+    """One ``runsc exec`` command in a warm session runtime."""
 
     def __init__(
         self,
@@ -182,58 +200,88 @@ class RunscExecution:
         *,
         runsc_binary: Path,
         runsc_root: Path,
-        bundle: OciBundle,
-        builder: OciBundleBuilder,
+        runtime: _WarmRuntime,
+        pid_path: Path,
+        destroy_runtime: Callable[[_WarmRuntime], Awaitable[None]],
     ) -> None:
         self._process = process
         self._runsc_binary = runsc_binary
         self._runsc_root = runsc_root
-        self._bundle = bundle
-        self._builder = builder
-        self._cleaned = False
+        self._runtime = runtime
+        self._pid_path = pid_path
+        self._destroy_runtime = destroy_runtime
 
     async def wait(self) -> int:
         try:
             return await self._process.wait()
         finally:
-            self._cleanup()
+            self._pid_path.unlink(missing_ok=True)
 
     async def terminate(self) -> int:
-        """Force-delete the container, then kill the launcher process group if needed."""
+        """Stop this exec process, destroying the runtime only if it is unsafe to retain."""
         if self._process.returncode is None:
-            delete = await asyncio.create_subprocess_exec(
-                str(self._runsc_binary),
-                "--root",
-                str(self._runsc_root),
-                "delete",
-                "--force",
-                self._bundle.container_id,
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await delete.wait()
-        if self._process.returncode is None:
-            try:
-                os.killpg(self._process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
+            sandbox_pid = await self._sandbox_pid()
+            if sandbox_pid is None:
+                # Without a sandbox pid, a host-side launcher kill could leave
+                # an unknown command running.  Destroy the whole runtime.
+                await self._destroy_runtime(self._runtime)
+                self._stop_launcher(signal.SIGTERM)
+            else:
+                await self._signal(sandbox_pid, "SIGTERM")
         try:
             return await asyncio.wait_for(self._process.wait(), timeout=5)
         except TimeoutError:
             if self._process.returncode is None:
-                try:
-                    os.killpg(self._process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+                sandbox_pid = await self._sandbox_pid()
+                if sandbox_pid is None:
+                    await self._destroy_runtime(self._runtime)
+                    self._stop_launcher(signal.SIGKILL)
+                else:
+                    await self._signal(sandbox_pid, "SIGKILL")
             return await self._process.wait()
         finally:
-            self._cleanup()
+            self._pid_path.unlink(missing_ok=True)
 
-    def _cleanup(self) -> None:
-        if not self._cleaned:
-            self._builder.remove(self._bundle)
-            self._cleaned = True
+    async def _sandbox_pid(self) -> int | None:
+        """Wait briefly for ``runsc exec --pid-file`` to publish its PID."""
+        for _ in range(100):
+            try:
+                pid = int(self._pid_path.read_text(encoding="ascii").strip())
+            except FileNotFoundError:
+                if self._process.returncode is not None:
+                    return None
+            except ValueError as error:
+                raise RuntimeUnavailableError("runsc wrote an invalid exec pid") from error
+            else:
+                if pid > 0:
+                    return pid
+                raise RuntimeUnavailableError("runsc wrote an invalid exec pid")
+            await asyncio.sleep(0.01)
+        return None
+
+    async def _signal(self, sandbox_pid: int, signal_name: str) -> None:
+        command = await asyncio.create_subprocess_exec(
+            str(self._runsc_binary),
+            "--root",
+            str(self._runsc_root),
+            "kill",
+            "--pid",
+            str(sandbox_pid),
+            self._runtime.bundle.container_id,
+            signal_name,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        if await command.wait() != 0:
+            await self._destroy_runtime(self._runtime)
+            raise RuntimeUnavailableError("runsc could not signal the exec process")
+
+    def _stop_launcher(self, signal_value: signal.Signals) -> None:
+        try:
+            os.killpg(self._process.pid, signal_value)
+        except ProcessLookupError:
+            pass
 
 
 class RunscExecutor:
@@ -243,6 +291,11 @@ class RunscExecutor:
         self._config = config
         self._builder = OciBundleBuilder(config)
         self.sandbox_image = config.sandbox_image_identity
+        self._runtimes: dict[str, _WarmRuntime] = {}
+        self._runtime_locks: dict[str, asyncio.Lock] = {}
+
+    def _runtime_lock(self, session_id: str) -> asyncio.Lock:
+        return self._runtime_locks.setdefault(session_id, asyncio.Lock())
 
     async def start(
         self,
@@ -262,7 +315,8 @@ class RunscExecutor:
         runsc_binary = self._config.runsc_binary
         if not runsc_binary.is_file() or not os.access(runsc_binary, os.X_OK):
             raise RuntimeUnavailableError("configured runsc binary is not executable")
-        bundle = self._builder.create(session_id=session_id, workspace=workspace, command=command)
+        runtime = await self._runtime(session_id=session_id, workspace=workspace)
+        pid_path = runtime.bundle.path / f"exec-{uuid4()}.pid"
         try:
             with stdout_path.open("ab") as stdout, stderr_path.open("ab") as stderr:
                 process = await asyncio.create_subprocess_exec(
@@ -271,22 +325,95 @@ class RunscExecutor:
                     str(self._builder.runsc_root),
                     "--platform=systrap",
                     "--network=none",
-                    "run",
-                    "--bundle",
-                    str(bundle.path),
-                    bundle.container_id,
+                    "exec",
+                    "--cwd",
+                    "/workspace",
+                    "--env",
+                    "HOME=/workspace",
+                    "--env",
+                    "PATH=/usr/local/bin:/usr/bin:/bin",
+                    "--env",
+                    "TMPDIR=/tmp",
+                    "--user",
+                    f"{os.getuid()}:{os.getgid()}",
+                    "--pid-file",
+                    str(pid_path),
+                    runtime.bundle.container_id,
+                    "/bin/bash",
+                    "-lc",
+                    command,
                     stdin=asyncio.subprocess.DEVNULL,
                     stdout=stdout,
                     stderr=stderr,
                     start_new_session=True,
                 )
         except Exception:
-            self._builder.remove(bundle)
+            pid_path.unlink(missing_ok=True)
             raise
         return RunscExecution(
             process,
             runsc_binary=runsc_binary,
             runsc_root=self._builder.runsc_root,
-            bundle=bundle,
-            builder=self._builder,
+            runtime=runtime,
+            pid_path=pid_path,
+            destroy_runtime=self._destroy_runtime,
         )
+
+    async def _runtime(self, *, session_id: str, workspace: Path) -> _WarmRuntime:
+        """Return a live warm runtime, booting it once for this session."""
+        async with self._runtime_lock(session_id):
+            existing = self._runtimes.get(session_id)
+            if existing is not None:
+                return existing
+            bundle = self._builder.create(session_id=session_id, workspace=workspace)
+            try:
+                launcher = await asyncio.create_subprocess_exec(
+                    str(self._config.runsc_binary),
+                    "--root",
+                    str(self._builder.runsc_root),
+                    "--platform=systrap",
+                    "--network=none",
+                    "run",
+                    "--detach",
+                    "--bundle",
+                    str(bundle.path),
+                    bundle.container_id,
+                    stdin=asyncio.subprocess.DEVNULL,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                if await launcher.wait() != 0:
+                    raise RuntimeUnavailableError("runsc could not start the warm session runtime")
+            except Exception:
+                self._builder.remove(bundle)
+                raise
+            runtime = _WarmRuntime(session_id=session_id, bundle=bundle)
+            self._runtimes[session_id] = runtime
+            return runtime
+
+    async def _destroy_runtime(self, runtime: _WarmRuntime) -> None:
+        """Delete a known warm runtime and its disposable bundle exactly once."""
+        async with self._runtime_lock(runtime.session_id):
+            if self._runtimes.get(runtime.session_id) != runtime:
+                return
+            delete = await asyncio.create_subprocess_exec(
+                str(self._config.runsc_binary),
+                "--root",
+                str(self._builder.runsc_root),
+                "delete",
+                "--force",
+                runtime.bundle.container_id,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            if await delete.wait() != 0:
+                raise RuntimeUnavailableError("runsc could not delete the warm session runtime")
+            self._runtimes.pop(runtime.session_id, None)
+            self._builder.remove(runtime.bundle)
+
+    async def aclose(self) -> None:
+        """Destroy all warm runtimes during an orderly service shutdown."""
+        for runtime in list(self._runtimes.values()):
+            await self._destroy_runtime(runtime)

@@ -76,8 +76,8 @@ registry slot only after durable terminal state is written.
 start a job, terminate a job process group, inspect a live job, destroy a
 session runtime, and enumerate runtime instances.  It returns runtime facts,
 not HTTP models.  `local_executor` launches an ordinary process group for
-Stage 4.  `runsc_executor` will generate OCI bundles and invoke `runsc` without
-Docker or Podman.
+Stage 4.  `runsc_executor` generates an OCI bundle containing a signal-aware
+idle init, then invokes `runsc exec` for each job without Docker or Podman.
 
 `reconciler` runs before accepting traffic.  It kills any discovered managed
 runtime instance, then marks any durable non-terminal job state as
@@ -118,9 +118,12 @@ at `/workspace`; no caller-supplied path is used as a mount target.
 
 The `runsc` backend must run with networking disabled, a read-only rootfs,
 only `/workspace` plus a bounded scratch mount writable, no privileged mode,
-and a non-`ptrace` platform.  The exact warm-init/`runsc exec` command sequence,
-resource-cgroup mapping, and rootfs preparation are Stage 5 design-and-probe
-work; they are not assumptions the local executor may emulate.
+and a non-`ptrace` platform.  It starts one `runsc run --detach` idle init per
+session and uses `runsc exec --pid-file` for each command.  Cancellation first
+targets that exec PID; failure to identify or signal it destroys the whole
+session runtime rather than risk retaining an unknown process.  Resource-cgroup
+mapping and rootfs preparation remain Stage 5 design-and-probe work; they are
+not assumptions the local executor may emulate.
 
 ## Concurrency and durability rules
 
