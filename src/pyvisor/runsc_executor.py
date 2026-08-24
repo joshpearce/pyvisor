@@ -23,6 +23,10 @@ from pyvisor.config import AppConfig
 from pyvisor.ids import valid_session_id
 
 _OCI_VERSION = "1.0.2"
+_RUNSC_CONTROL_TIMEOUT_SECONDS = 3.0
+_RUNSC_CONTROL_REAP_TIMEOUT_SECONDS = 1.0
+_RUNSC_EXEC_TERMINATION_GRACE_SECONDS = 5.0
+_RUNSC_EXEC_KILL_GRACE_SECONDS = 1.0
 LOGGER = logging.getLogger("pyvisor.runsc_executor")
 
 
@@ -47,6 +51,29 @@ def _directory(path: Path, *, label: str) -> Path:
     if path.is_symlink() or not path.is_dir():
         raise RuntimeUnavailableError(f"{label} must be a non-symlink directory")
     return path.resolve(strict=True)
+
+
+def _stop_process_group(process: asyncio.subprocess.Process, signal_value: signal.Signals) -> None:
+    """Best-effort stop for a control command started in its own process group."""
+    try:
+        os.killpg(process.pid, signal_value)
+    except ProcessLookupError:
+        pass
+
+
+async def _wait_for_runsc_control(
+    process: asyncio.subprocess.Process, *, operation: str
+) -> int:
+    """Wait for a runsc control command without letting it stall lifecycle work."""
+    try:
+        return await asyncio.wait_for(process.wait(), timeout=_RUNSC_CONTROL_TIMEOUT_SECONDS)
+    except TimeoutError as error:
+        _stop_process_group(process, signal.SIGKILL)
+        try:
+            await asyncio.wait_for(process.wait(), timeout=_RUNSC_CONTROL_REAP_TIMEOUT_SECONDS)
+        except TimeoutError:
+            LOGGER.error("runsc_control_process_reap_timed_out", extra={"operation": operation})
+        raise RuntimeUnavailableError(f"runsc {operation} timed out") from error
 
 
 class OciBundleBuilder:
@@ -209,6 +236,7 @@ class RunscExecution:
         runtime: _WarmRuntime,
         pid_path: Path,
         destroy_runtime: Callable[[_WarmRuntime], Awaitable[None]],
+        rootless_arguments: tuple[str, ...],
     ) -> None:
         self._process = process
         self._runsc_binary = runsc_binary
@@ -216,6 +244,7 @@ class RunscExecution:
         self._runtime = runtime
         self._pid_path = pid_path
         self._destroy_runtime = destroy_runtime
+        self._rootless_arguments = rootless_arguments
 
     async def wait(self) -> int:
         try:
@@ -225,26 +254,42 @@ class RunscExecution:
 
     async def terminate(self) -> int:
         """Stop this exec process, destroying the runtime only if it is unsafe to retain."""
-        if self._process.returncode is None:
-            sandbox_pid = await self._sandbox_pid()
-            if sandbox_pid is None:
-                # Without a sandbox pid, a host-side launcher kill could leave
-                # an unknown command running.  Destroy the whole runtime.
-                await self._destroy_runtime(self._runtime)
-                self._stop_launcher(signal.SIGTERM)
-            else:
-                await self._signal(sandbox_pid, "SIGTERM")
         try:
-            return await asyncio.wait_for(self._process.wait(), timeout=5)
-        except TimeoutError:
             if self._process.returncode is None:
                 sandbox_pid = await self._sandbox_pid()
                 if sandbox_pid is None:
+                    # Without a sandbox pid, a host-side launcher kill could leave
+                    # an unknown command running.  Destroy the whole runtime.
                     await self._destroy_runtime(self._runtime)
-                    self._stop_launcher(signal.SIGKILL)
+                    self._stop_launcher(signal.SIGTERM)
                 else:
-                    await self._signal(sandbox_pid, "SIGKILL")
-            return await self._process.wait()
+                    await self._signal(sandbox_pid, "SIGTERM")
+            try:
+                return await asyncio.wait_for(
+                    self._process.wait(), timeout=_RUNSC_EXEC_TERMINATION_GRACE_SECONDS
+                )
+            except TimeoutError:
+                if self._process.returncode is None:
+                    sandbox_pid = await self._sandbox_pid()
+                    if sandbox_pid is None:
+                        await self._destroy_runtime(self._runtime)
+                        self._stop_launcher(signal.SIGKILL)
+                    else:
+                        await self._signal(sandbox_pid, "SIGKILL")
+                try:
+                    return await asyncio.wait_for(
+                        self._process.wait(), timeout=_RUNSC_EXEC_KILL_GRACE_SECONDS
+                    )
+                except TimeoutError as error:
+                    self._stop_launcher(signal.SIGKILL)
+                    raise RuntimeUnavailableError(
+                        "runsc exec did not exit after cancellation"
+                    ) from error
+        except RuntimeUnavailableError:
+            # A failed control operation leaves the launcher untrustworthy too.
+            # Do not retain it after reporting the terminal runtime error.
+            self._stop_launcher(signal.SIGKILL)
+            raise
         finally:
             self._pid_path.unlink(missing_ok=True)
 
@@ -270,6 +315,7 @@ class RunscExecution:
             str(self._runsc_binary),
             "--root",
             str(self._runsc_root),
+            *self._rootless_arguments,
             "kill",
             "--pid",
             str(sandbox_pid),
@@ -278,16 +324,14 @@ class RunscExecution:
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
+            start_new_session=True,
         )
-        if await command.wait() != 0:
+        if await _wait_for_runsc_control(command, operation="kill") != 0:
             await self._destroy_runtime(self._runtime)
             raise RuntimeUnavailableError("runsc could not signal the exec process")
 
     def _stop_launcher(self, signal_value: signal.Signals) -> None:
-        try:
-            os.killpg(self._process.pid, signal_value)
-        except ProcessLookupError:
-            pass
+        _stop_process_group(self._process, signal_value)
 
 
 class RunscExecutor:
@@ -298,6 +342,7 @@ class RunscExecutor:
         self._builder = OciBundleBuilder(config)
         self.sandbox_image = config.sandbox_image_identity
         self._runtimes: dict[str, _WarmRuntime] = {}
+        self._unavailable_runtime_sessions: set[str] = set()
         self._runtime_locks: dict[str, asyncio.Lock] = {}
 
     @staticmethod
@@ -377,6 +422,7 @@ class RunscExecutor:
             str(self._config.runsc_binary),
             "--root",
             str(self._builder.runsc_root),
+            *self._rootless_arguments(),
             "list",
             "--quiet",
             stdin=asyncio.subprocess.DEVNULL,
@@ -398,6 +444,7 @@ class RunscExecutor:
             str(self._config.runsc_binary),
             "--root",
             str(self._builder.runsc_root),
+            *self._rootless_arguments(),
             "state",
             container_id,
             stdin=asyncio.subprocess.DEVNULL,
@@ -456,14 +503,16 @@ class RunscExecutor:
             str(self._config.runsc_binary),
             "--root",
             str(self._builder.runsc_root),
+            *self._rootless_arguments(),
             "delete",
             "--force",
             bundle.container_id,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
+            start_new_session=True,
         )
-        if await delete.wait() != 0:
+        if await _wait_for_runsc_control(delete, operation="delete orphan") != 0:
             raise RuntimeUnavailableError("runsc could not delete an orphaned runtime")
         self._builder.remove(bundle)
 
@@ -530,11 +579,16 @@ class RunscExecutor:
             runtime=runtime,
             pid_path=pid_path,
             destroy_runtime=self._destroy_runtime,
+            rootless_arguments=self._rootless_arguments(),
         )
 
     async def _runtime(self, *, session_id: str, workspace: Path) -> _WarmRuntime:
         """Return a live warm runtime, booting it once for this session."""
         async with self._runtime_lock(session_id):
+            if session_id in self._unavailable_runtime_sessions:
+                raise RuntimeUnavailableError(
+                    "warm session runtime is unavailable pending cleanup"
+                )
             existing = self._runtimes.get(session_id)
             if existing is not None:
                 return existing
@@ -584,14 +638,16 @@ class RunscExecutor:
                         str(self._config.runsc_binary),
                         "--root",
                         str(self._builder.runsc_root),
+                        *self._rootless_arguments(),
                         "delete",
                         "--force",
                         bundle.container_id,
                         stdin=asyncio.subprocess.DEVNULL,
                         stdout=asyncio.subprocess.DEVNULL,
                         stderr=asyncio.subprocess.DEVNULL,
+                        start_new_session=True,
                     )
-                    if await delete.wait() != 0:
+                    if await _wait_for_runsc_control(delete, operation="delete") != 0:
                         raise RuntimeUnavailableError(
                             "runsc could not clean up a failed warm runtime launch"
                         )
@@ -620,16 +676,25 @@ class RunscExecutor:
             str(self._config.runsc_binary),
             "--root",
             str(self._builder.runsc_root),
+            *self._rootless_arguments(),
             "delete",
             "--force",
             runtime.bundle.container_id,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
+            start_new_session=True,
         )
-        if await delete.wait() != 0:
+        try:
+            deleted = await _wait_for_runsc_control(delete, operation="delete")
+        except RuntimeUnavailableError:
+            self._unavailable_runtime_sessions.add(runtime.session_id)
+            raise
+        if deleted != 0:
+            self._unavailable_runtime_sessions.add(runtime.session_id)
             raise RuntimeUnavailableError("runsc could not delete the warm session runtime")
         self._runtimes.pop(runtime.session_id, None)
+        self._unavailable_runtime_sessions.discard(runtime.session_id)
         self._builder.remove(runtime.bundle)
         return True
 

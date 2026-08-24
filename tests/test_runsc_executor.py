@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import signal
 from pathlib import Path
 
 import pytest
@@ -399,6 +400,8 @@ async def test_runsc_executor_reuses_the_session_runtime_for_later_jobs(
         sandbox_image_identity="python-3.13.5@sha256:example",
         runsc_binary=runsc,
     )
+    monkeypatch.setattr("pyvisor.runsc_executor.os.geteuid", lambda: 0)
+    monkeypatch.setattr(RunscExecutor, "runs_as_host_root", staticmethod(lambda: False))
     calls: list[tuple[object, ...]] = []
 
     class Process:
@@ -431,20 +434,21 @@ async def test_runsc_executor_reuses_the_session_runtime_for_later_jobs(
         stderr_path=tmp_path / "second.stderr",
     )
 
-    assert calls[0][3:7] == (
+    assert calls[0][3:8] == (
+        "--rootless",
         "--ignore-cgroups",
         "--platform=systrap",
         "--network=none",
         "run",
     )
-    assert [call[5] for call in calls[1:]] == ["exec", "exec"]
+    assert [call[6] for call in calls[1:]] == ["exec", "exec"]
     container_id = calls[0][-1]
     assert container_id in calls[1]
     assert container_id in calls[2]
     await first.wait()
     await second.wait()
     assert await executor.reap("chat_01") is True
-    assert calls[-1][3:] == ("delete", "--force", container_id)
+    assert calls[-1][3:] == ("--rootless", "delete", "--force", container_id)
     assert await executor.reap("chat_01") is False
 
 
@@ -466,6 +470,8 @@ async def test_runsc_exec_cancellation_signals_only_the_exec_pid(
         sandbox_image_identity="python-3.13.5@sha256:example",
         runsc_binary=runsc,
     )
+    monkeypatch.setattr("pyvisor.runsc_executor.os.geteuid", lambda: 0)
+    monkeypatch.setattr(RunscExecutor, "runs_as_host_root", staticmethod(lambda: False))
     calls: list[tuple[object, ...]] = []
 
     class Process:
@@ -515,5 +521,88 @@ async def test_runsc_exec_cancellation_signals_only_the_exec_pid(
         calls[0][-1],
         "SIGTERM",
     )
+    assert "--rootless" in kill_call
     assert not any("delete" in call for call in calls)
     await executor.aclose()
+
+
+@pytest.mark.asyncio
+async def test_runsc_exec_cancellation_times_out_a_hung_runtime_delete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rootfs = tmp_path / "rootfs"
+    rootfs.mkdir()
+    workspace = tmp_path / "sessions" / "chat_01" / "workspace"
+    workspace.mkdir(parents=True)
+    runsc = tmp_path / "runsc"
+    runsc.write_text("#!/bin/sh\n")
+    runsc.chmod(0o700)
+    config = AppConfig(
+        sessions_root=tmp_path / "sessions",
+        runtime_root=tmp_path / "runtime",
+        sandbox_rootfs=rootfs,
+        sandbox_image_identity="python-3.13.5@sha256:example",
+        runsc_binary=runsc,
+    )
+    monkeypatch.setattr("pyvisor.runsc_executor._RUNSC_CONTROL_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr("pyvisor.runsc_executor._RUNSC_CONTROL_REAP_TIMEOUT_SECONDS", 0.01)
+    stopped_process_groups: list[tuple[int, signal.Signals]] = []
+    monkeypatch.setattr(
+        "pyvisor.runsc_executor.os.killpg",
+        lambda pid, signal_value: stopped_process_groups.append((pid, signal_value)),
+    )
+
+    class Process:
+        def __init__(self, pid: int, returncode: int | None) -> None:
+            self.pid = pid
+            self.returncode = returncode
+            self.finished = asyncio.Event()
+
+        async def wait(self) -> int:
+            if self.returncode is None:
+                await self.finished.wait()
+            assert self.returncode is not None
+            return self.returncode
+
+    exec_process = Process(100, None)
+    delete_process = Process(200, None)
+    calls: list[tuple[object, ...]] = []
+
+    async def create_subprocess_exec(*args: object, **_: object) -> Process:
+        calls.append(args)
+        if "exec" in args:
+            pid_path = Path(str(args[args.index("--pid-file") + 1]))
+            pid_path.write_text("42\n")
+            return exec_process
+        if "kill" in args:
+            return Process(300, 1)
+        if "delete" in args:
+            return delete_process
+        return Process(400, 0)
+
+    monkeypatch.setattr(
+        "pyvisor.runsc_executor.asyncio.create_subprocess_exec", create_subprocess_exec
+    )
+    executor = RunscExecutor(config)
+    execution = await executor.start(
+        "sleep 10",
+        session_id="chat_01",
+        workspace=workspace,
+        stdout_path=tmp_path / "stdout.bin",
+        stderr_path=tmp_path / "stderr.bin",
+    )
+
+    with pytest.raises(RuntimeUnavailableError, match="runsc delete timed out"):
+        await asyncio.wait_for(execution.terminate(), timeout=0.2)
+
+    assert any("delete" in call for call in calls)
+    assert (200, signal.SIGKILL) in stopped_process_groups
+    assert (100, signal.SIGKILL) in stopped_process_groups
+    with pytest.raises(RuntimeUnavailableError, match="unavailable pending cleanup"):
+        await executor.start(
+            "printf next",
+            session_id="chat_01",
+            workspace=workspace,
+            stdout_path=tmp_path / "next.stdout",
+            stderr_path=tmp_path / "next.stderr",
+        )
