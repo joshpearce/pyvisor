@@ -386,7 +386,7 @@ contracts match the code.
 
 ### FU-1: Emit Exception Detail In Structured Logs
 
-- Status: pending
+- Status: in progress
 - Priority: high
 - Stage: 7
 - Blocked by: none

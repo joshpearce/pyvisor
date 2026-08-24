@@ -7,6 +7,8 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+_ERROR_DETAIL_LIMIT = 4_096
+
 
 class JsonFormatter(logging.Formatter):
     """Emit stable, machine-readable lifecycle log records."""
@@ -22,6 +24,10 @@ class JsonFormatter(logging.Formatter):
             value = getattr(record, key, None)
             if value is not None:
                 event[key] = value
+        if record.exc_info:
+            exc_type, exc_value, _ = record.exc_info
+            event["error_type"] = exc_type.__name__
+            event["error"] = str(exc_value)[:_ERROR_DETAIL_LIMIT]
         return json.dumps(event, separators=(",", ":"), sort_keys=True)
 
 
