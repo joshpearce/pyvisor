@@ -229,8 +229,8 @@ Tasks:
   instead of the `REPLACE_WITH_NAR_HASH` placeholder.
 - Completed: FU-2 — runsc startup rejects empty and placeholder sandbox image
   identities.
-- Pending: FU-7 in Deployment Review Follow-Ups — the identity is derived in
-  the `nixconfigs` repo rather than in this flake.
+- Completed: FU-7 — derive the image identity in this flake and inherit it in
+  the NixOS deployment configuration.
 
 More design needed: yes.
 
@@ -605,7 +605,7 @@ Done when: the draft no longer contains a value known to break a deployment.
 
 ### FU-7: Derive The Sandbox Image Identity In The Flake
 
-- Status: in progress
+- Status: complete (c942aac)
 - Priority: low
 - Stage: 6
 - Blocked by: FU-2
