@@ -236,6 +236,7 @@ class RunscExecution:
         runtime: _WarmRuntime,
         pid_path: Path,
         destroy_runtime: Callable[[_WarmRuntime], Awaitable[None]],
+        discard_runtime: Callable[[_WarmRuntime], Awaitable[None]],
         rootless_arguments: tuple[str, ...],
     ) -> None:
         self._process = process
@@ -244,6 +245,7 @@ class RunscExecution:
         self._runtime = runtime
         self._pid_path = pid_path
         self._destroy_runtime = destroy_runtime
+        self._discard_runtime = discard_runtime
         self._rootless_arguments = rootless_arguments
 
     async def wait(self) -> int:
@@ -287,8 +289,10 @@ class RunscExecution:
                     ) from error
         except RuntimeUnavailableError:
             # A failed control operation leaves the launcher untrustworthy too.
-            # Do not retain it after reporting the terminal runtime error.
+            # Discard the dead warm runtime so the next job can cold-start one
+            # against the same durable workspace.
             self._stop_launcher(signal.SIGKILL)
+            await self._discard_runtime(self._runtime)
             raise
         finally:
             self._pid_path.unlink(missing_ok=True)
@@ -342,7 +346,6 @@ class RunscExecutor:
         self._builder = OciBundleBuilder(config)
         self.sandbox_image = config.sandbox_image_identity
         self._runtimes: dict[str, _WarmRuntime] = {}
-        self._unavailable_runtime_sessions: set[str] = set()
         self._runtime_locks: dict[str, asyncio.Lock] = {}
 
     @staticmethod
@@ -579,16 +582,13 @@ class RunscExecutor:
             runtime=runtime,
             pid_path=pid_path,
             destroy_runtime=self._destroy_runtime,
+            discard_runtime=self._discard_runtime,
             rootless_arguments=self._rootless_arguments(),
         )
 
     async def _runtime(self, *, session_id: str, workspace: Path) -> _WarmRuntime:
         """Return a live warm runtime, booting it once for this session."""
         async with self._runtime_lock(session_id):
-            if session_id in self._unavailable_runtime_sessions:
-                raise RuntimeUnavailableError(
-                    "warm session runtime is unavailable pending cleanup"
-                )
             existing = self._runtimes.get(session_id)
             if existing is not None:
                 return existing
@@ -668,6 +668,14 @@ class RunscExecutor:
         async with self._runtime_lock(runtime.session_id):
             await self._destroy_runtime_locked(runtime)
 
+    async def _discard_runtime(self, runtime: _WarmRuntime) -> None:
+        """Forget a runtime known to have failed so its session can cold-start."""
+        async with self._runtime_lock(runtime.session_id):
+            if self._runtimes.get(runtime.session_id) != runtime:
+                return
+            self._runtimes.pop(runtime.session_id, None)
+            self._builder.remove(runtime.bundle)
+
     async def _destroy_runtime_locked(self, runtime: _WarmRuntime) -> bool:
         """Delete a runtime while its session-specific runtime lock is held."""
         if self._runtimes.get(runtime.session_id) != runtime:
@@ -688,13 +696,10 @@ class RunscExecutor:
         try:
             deleted = await _wait_for_runsc_control(delete, operation="delete")
         except RuntimeUnavailableError:
-            self._unavailable_runtime_sessions.add(runtime.session_id)
             raise
         if deleted != 0:
-            self._unavailable_runtime_sessions.add(runtime.session_id)
             raise RuntimeUnavailableError("runsc could not delete the warm session runtime")
         self._runtimes.pop(runtime.session_id, None)
-        self._unavailable_runtime_sessions.discard(runtime.session_id)
         self._builder.remove(runtime.bundle)
         return True
 

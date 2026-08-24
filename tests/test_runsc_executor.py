@@ -598,11 +598,12 @@ async def test_runsc_exec_cancellation_times_out_a_hung_runtime_delete(
     assert any("delete" in call for call in calls)
     assert (200, signal.SIGKILL) in stopped_process_groups
     assert (100, signal.SIGKILL) in stopped_process_groups
-    with pytest.raises(RuntimeUnavailableError, match="unavailable pending cleanup"):
-        await executor.start(
-            "printf next",
-            session_id="chat_01",
-            workspace=workspace,
-            stdout_path=tmp_path / "next.stdout",
-            stderr_path=tmp_path / "next.stderr",
-        )
+    recovered = await executor.start(
+        "printf next",
+        session_id="chat_01",
+        workspace=workspace,
+        stdout_path=tmp_path / "next.stdout",
+        stderr_path=tmp_path / "next.stderr",
+    )
+    assert sum("run" in call for call in calls) == 2
+    assert recovered._runtime != execution._runtime
