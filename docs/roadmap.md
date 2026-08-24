@@ -225,8 +225,8 @@ Tasks:
   trace records already persist the configured identity.
 - Completed: derive the deployed identity from the `sandbox-rootfs` derivation
   instead of the `REPLACE_WITH_NAR_HASH` placeholder.
-- Pending: FU-2 in Deployment Review Follow-Ups — a placeholder identity is
-  still accepted at startup.
+- Completed: FU-2 — runsc startup rejects empty and placeholder sandbox image
+  identities.
 - Pending: FU-7 in Deployment Review Follow-Ups — the identity is derived in
   the `nixconfigs` repo rather than in this flake.
 
@@ -429,7 +429,7 @@ output, and the suite passes.
 
 ### FU-2: Reject Placeholder Sandbox Image Identities At Startup
 
-- Status: in progress
+- Status: complete (a2c933a)
 - Priority: high
 - Stage: 6
 - Blocked by: none
