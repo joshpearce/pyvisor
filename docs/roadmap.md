@@ -221,7 +221,8 @@ Tasks:
   dedicated rootless service, validating the built rootfs end to end.
 - Completed: add a host-gated integration test that requires `pip install` to
   fail with a legible offline-network diagnostic.
-- Pending: run that `pip install` check in the delegated NixOS service.
+- Completed: run the `pip install` and explicit offline-network probe in the
+  delegated NixOS service on 2026-08-24.
 - Completed: document deriving an image identity from the rootfs NAR hash;
   trace records already persist the configured identity.
 - Completed: derive the deployed identity from the `sandbox-rootfs` derivation
@@ -247,7 +248,7 @@ Exit criteria:
 
 Status: in progress. The service now reaps idle warm runtimes under the same
 per-session lock used for launch, terminalization, and cancellation; deployment
-metrics and NixOS runtime validation remain.
+metrics remain.
 
 Goal: make long-running service behavior predictable.
 
@@ -286,7 +287,8 @@ Tasks:
 - Enforce memory limits.
 - Enforce job wall-clock timeout.
 - Enforce session disk quota.
-- Pending: run the existing offline `pip` probe in the delegated NixOS service.
+- Completed: run the offline `pip` and direct TCP probes in the delegated NixOS
+  service on 2026-08-24.
 - Completed: add host-gated probes for a read-only rootfs, writable workspace
   and scratch mounts, and an empty effective capability set.
 - Completed: add automated host-gated isolation integration tests.
