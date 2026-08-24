@@ -109,5 +109,6 @@ uv run pytest -m runsc_integration
 
 The test refuses to run as root and skips unless all four settings are present.
 It verifies offline `pip` behavior, a read-only rootfs, the writable workspace
-and scratch mounts, and an empty effective capability set. CPU, memory, pids,
-session-disk limits, and cancellation coverage remain later work.
+and scratch mounts, an empty effective capability set, and idle runtime reaping
+without loss of workspace data. CPU, memory, pids, session-disk limits, and
+cancellation coverage remain later work.

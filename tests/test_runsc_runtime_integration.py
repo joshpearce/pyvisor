@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from pyvisor.config import AppConfig
+from pyvisor.jobs import JobService
 from pyvisor.runsc_executor import RunscExecutor
 
 pytestmark = pytest.mark.runsc_integration
@@ -227,3 +228,30 @@ if cap_eff != "0000000000000000":
     assert "rootfs-error:read-only file system" in output
     assert "capeff:0000000000000000" in output
     assert workspace.joinpath("workspace-probe.txt").read_text() == "workspace\n"
+
+
+@pytest.mark.asyncio
+async def test_runsc_runtime_idle_reap_preserves_workspace(tmp_path: Path) -> None:
+    """Idle reaping destroys the warm runtime but retains durable session data."""
+    config = _integration_config(tmp_path)
+    session_id = "runsc_reaper_01"
+    executor = RunscExecutor(config)
+    jobs = JobService(config, executor)
+
+    try:
+        completed = await jobs.run(
+            session_id,
+            "printf persisted > reaper-probe.txt",
+            timeout_seconds=None,
+        )
+        assert completed.status == "completed"
+        assert await _listed_container_ids(config)
+
+        jobs._last_activity[session_id] -= config.idle_reap_seconds + 1
+        assert await jobs.reap_idle() == 1
+        assert await _listed_container_ids(config) == []
+    finally:
+        await jobs.aclose()
+
+    workspace = config.sessions_root / session_id / "workspace"
+    assert workspace.joinpath("reaper-probe.txt").read_text() == "persisted"
