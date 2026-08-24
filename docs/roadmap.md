@@ -261,9 +261,8 @@ Tasks:
 - Completed: expose process-level lifecycle metrics without high-cardinality
   session or job labels.
 - Completed: add tests for reaping and non-reaping of active jobs.
-- Pending: FU-1 in Deployment Review Follow-Ups — the JSON log formatter drops
-  `exc_info`, so all ten `LOGGER.exception` sites log an event name and nothing
-  else.
+- Completed: FU-1 — structured JSON logs include bounded exception type and
+  message details.
 
 More design needed: moderate.
 
@@ -386,7 +385,7 @@ contracts match the code.
 
 ### FU-1: Emit Exception Detail In Structured Logs
 
-- Status: in progress
+- Status: complete (94420c0)
 - Priority: high
 - Stage: 7
 - Blocked by: none
