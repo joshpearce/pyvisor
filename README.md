@@ -28,6 +28,10 @@ It requires a pinned prepared rootfs, an explicit sandbox image identity, and
 the NixOS service permissions described in `docs/design/nixos-runtime.md`; it
 is not runnable from an ordinary development shell.
 
+The pinned offline Python rootfs is defined by the repository Nix flake.  See
+`docs/design/sandbox-image.md` to build it, inspect its manifest, and derive
+the image identity used in traces.
+
 ## NixOS `runsc` integration test
 
 The direct-runtime integration test is deliberately disabled unless explicitly

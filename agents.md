@@ -111,6 +111,8 @@ or skipped with an explicit reason.
 
 - Keep the service container build reproducible.
 - Pin Python and significant Python package versions in the sandbox image.
+- Build the x86_64 Linux sandbox rootfs from the pinned repository flake; keep
+  its Nix output/NAR identity with the deployment metadata and trace setting.
 - Do not rely on runtime package installation from inside the sandbox.
 - Include a health endpoint suitable for container/service checks.
 - Include Nix/NixOS or Quadlet deployment artifacts when the deployment shape is
@@ -135,4 +137,3 @@ or skipped with an explicit reason.
   precise TODO or skipped test tied to the missing host capability.
 - Before finalizing a code change, run the relevant checks that are available in
   the current environment and report anything that could not be run.
-

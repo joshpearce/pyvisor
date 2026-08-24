@@ -185,27 +185,33 @@ Exit criteria:
 
 ## Stage 6: Sandbox Image
 
-Status: not started.
+Status: in progress.  The repository now defines a Nix-built, closure-complete
+CPython 3.13 rootfs with the initial scientific stack and shell utilities.
+The artifact and a delegated NixOS runtime execution remain to be validated.
 
 Goal: build the offline-complete Python image used by the runtime backend.
 
 Tasks:
 
-- Choose Python version and patch release.
-- Choose initial package list.
-- Pin exact versions.
-- Build image/rootfs reproducibly.
-- Include common shell utilities.
-- Confirm runtime package installation fails legibly without network.
-- Record image identity/version in trace records.
+- Completed: choose CPython 3.13 as the pinned fallback while Python 3.14
+  wheel maturity remains uncertain.
+- Completed: choose the initial scientific package list and common shell
+  utilities.
+- Completed: define a reproducible closure-complete Nix rootfs artifact.
+- Completed: add the generated flake lock, which pins the exact versions.
+- Pending: build the artifact and run the opt-in NixOS `runsc` integration
+  suite against it.
+- Pending: confirm `pip install` fails legibly without network in the NixOS
+  security suite.
+- Completed: document deriving an image identity from the rootfs NAR hash;
+  trace records already persist the configured identity.
 
 More design needed: yes.
 
 Open questions:
 
-- Python 3.14 availability and scientific wheel maturity at implementation time.
-- Whether to build from a container image, Nix closure, debootstrap rootfs, or
-  another reproducible rootfs source.
+- When the scientific stack is ready for Python 3.14, whether a deliberate
+  image-version migration is justified.
 
 Exit criteria:
 
@@ -305,6 +311,40 @@ Exit criteria:
 
 - Idle sessions can be archived without losing RL-relevant data.
 - Local disk remains a bounded working set.
+
+## Unplanned Future Work
+
+### OCI Registry Distribution Of The Sandbox Rootfs
+
+Status: unplanned.
+
+Goal: make the pinned Nix-built sandbox rootfs distributable through GitHub
+Container Registry without making Docker or Podman part of Pyvisor's execution
+path.
+
+Tasks:
+
+- Produce a reproducible OCI image or OCI artifact from the exact
+  `sandbox-rootfs` Nix output.
+- Publish it to `ghcr.io/joshpearce/pyvisor-sandbox`, associated with this
+  repository's `origin` account.
+- Define CI credentials, publishing permissions, version/tag policy, and
+  retention policy.
+- Record both the Nix NAR hash and OCI manifest digest, and define the one
+  used as the runtime trace identity.
+- Define verified pull and unpack steps that yield a non-symlink rootfs
+  directory acceptable to direct `runsc` OCI bundles.
+- Add an end-to-end deployment test proving that a pulled artifact produces
+  the same rootfs behavior as the native Nix output.
+
+More design needed: yes.
+
+Notes:
+
+- The Nix binary cache remains the native distribution mechanism.  This future
+  work adds a registry-facing distribution format only.
+- Docker and Podman must remain absent from the command-execution path; `runsc`
+  continues to consume an unpacked rootfs directly.
 
 ## Suggested First Implementation Slice
 
