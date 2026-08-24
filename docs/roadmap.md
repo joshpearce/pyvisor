@@ -179,8 +179,9 @@ Tasks:
   single-UID OCI user namespace and no sandbox network.
 - Completed: FU-3 — cover `runsc` launch diagnostics and durable executor
   start-failure records.
-- Pending: FU-5 in Deployment Review Follow-Ups — the runsc launch diagnostic
-  is captured and then deleted with the bundle.
+- Completed: FU-5 — runsc launch diagnostics are emitted in bounded structured
+  logs, and failed launches attempt runtime-state cleanup before their disposable
+  bundles are removed.
 
 More design needed: high.
 
@@ -545,7 +546,7 @@ code, and the suite passes.
 
 ### FU-5: Preserve Or Log The runsc Launch Diagnostic
 
-- Status: pending
+- Status: complete (7202905)
 - Priority: medium
 - Stage: 5
 - Blocked by: FU-1
@@ -555,23 +556,16 @@ code, and the suite passes.
 folds it into `RuntimeUnavailableError` (`runsc_executor.py:529-565`).  The
 `except` branch at `:566-567` then removes the bundle, destroying that file.
 
-**Do FU-1 first, then re-judge this item.**  Once the formatter emits exception
-detail the message already reaches the operator, and bundle retention may not be
-worth its cost.  If you still want the artefact on disk, these are the traps:
+Decision: FU-1's bounded structured exception detail makes the existing
+`RuntimeUnavailableError` message readable to the operator. Retaining a failed
+launch bundle would only leak disposable state: `reconcile_orphans()` walks
+`runsc list`, not the bundles directory, and `PYVISOR_RUNTIME_ROOT` dies with
+the service container anyway. Keep the bundle disposable.
 
-- `reconcile_orphans()` (`runsc_executor.py:336-359`) walks `runsc list`, not the
-  bundles directory.  A retained bundle with no live container is never visited
-  by anything and leaks until the container restarts.
-- `tests/test_runsc_runtime_integration.py:133` asserts the bundles directory is
-  empty after `aclose()`.
-- `docs/design/session-layout.md:79-81` declares runtime bundles disposable.
-  Retention needs that line changed, not ignored.
-- `PYVISOR_RUNTIME_ROOT` is the container's writable layer, so a retained bundle
-  dies with the container anyway.  It buys a live shell session, not history.
-
-Separately, and whichever way you go: a failed `runsc run` can leave state in the
-`runsc --root` directory, and the `except` branch removes only the bundle.  No
-`runsc delete` is attempted.
+Change: on a failed `runsc run`, attempt `runsc delete --force` using the
+generated id before removing the bundle. Log a cleanup failure separately, but
+preserve the primary launch diagnostic. Document that launch stderr is logged,
+not durable.
 
 Done when: a start failure leaves the operator a readable diagnostic without an
 unbounded on-disk leak, and the decision is recorded in this item.
