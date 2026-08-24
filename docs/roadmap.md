@@ -429,7 +429,7 @@ output, and the suite passes.
 
 ### FU-2: Reject Placeholder Sandbox Image Identities At Startup
 
-- Status: pending
+- Status: in progress
 - Priority: high
 - Stage: 6
 - Blocked by: none

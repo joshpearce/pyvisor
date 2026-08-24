@@ -94,8 +94,14 @@ class AppConfig:
             raise ConfigurationError("PYVISOR_SESSIONS_ROOT and PYVISOR_RUNTIME_ROOT must differ")
         if config.execution_backend not in {"local", "runsc"}:
             raise ConfigurationError("PYVISOR_EXECUTION_BACKEND must be either 'local' or 'runsc'")
-        if not config.sandbox_image_identity:
-            raise ConfigurationError("PYVISOR_SANDBOX_IMAGE_IDENTITY must not be empty")
+        if config.execution_backend == "runsc" and (
+            not config.sandbox_image_identity
+            or config.sandbox_image_identity == "pyvisor-sandbox:unconfigured"
+            or "REPLACE_" in config.sandbox_image_identity
+        ):
+            raise ConfigurationError(
+                "PYVISOR_SANDBOX_IMAGE_IDENTITY must be a non-placeholder value for runsc"
+            )
         if not config.listen_host:
             raise ConfigurationError("PYVISOR_LISTEN_HOST must not be empty")
         return config

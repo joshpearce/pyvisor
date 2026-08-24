@@ -8,6 +8,8 @@ from pyvisor.config import AppConfig, ConfigurationError
 def test_config_uses_documented_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PYVISOR_SESSIONS_ROOT", raising=False)
     monkeypatch.delenv("PYVISOR_RUNTIME_ROOT", raising=False)
+    monkeypatch.delenv("PYVISOR_EXECUTION_BACKEND", raising=False)
+    monkeypatch.delenv("PYVISOR_SANDBOX_IMAGE_IDENTITY", raising=False)
 
     config = AppConfig.from_environment()
 
@@ -30,6 +32,20 @@ def test_config_rejects_unknown_execution_backend(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("PYVISOR_EXECUTION_BACKEND", "docker")
 
     with pytest.raises(ConfigurationError, match="EXECUTION_BACKEND"):
+        AppConfig.from_environment()
+
+
+@pytest.mark.parametrize(
+    "image_identity",
+    ("", "pyvisor-sandbox:unconfigured", "pyvisor-sandbox@sha256:REPLACE_WITH_NAR_HASH"),
+)
+def test_config_rejects_placeholder_runsc_image_identity(
+    monkeypatch: pytest.MonkeyPatch, image_identity: str
+) -> None:
+    monkeypatch.setenv("PYVISOR_EXECUTION_BACKEND", "runsc")
+    monkeypatch.setenv("PYVISOR_SANDBOX_IMAGE_IDENTITY", image_identity)
+
+    with pytest.raises(ConfigurationError, match="non-placeholder"):
         AppConfig.from_environment()
 
 
