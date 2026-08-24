@@ -31,6 +31,9 @@ dev = [
 addopts = "-ra"
 testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "runsc_integration: requires an explicitly enabled, delegated NixOS runsc environment",
+]
 
 [tool.ruff]
 target-version = "py313"

@@ -165,7 +165,8 @@ Tasks:
 - Completed: label generated containers with managed, session, and image-identity OCI annotations.
 - Completed: reconcile startup orphans by force-deleting only verified managed
   `runsc` containers and their generated bundles before accepting traffic.
-- Add runtime integration tests.
+- Completed: add host-gated runtime integration tests for warm boot, Python
+  execution, workspace persistence, and orderly runtime cleanup.
 
 More design needed: high.
 

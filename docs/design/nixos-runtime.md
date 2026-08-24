@@ -81,3 +81,27 @@ silently fall back to host networking.
    against the same workspace.
 5. Add resource, cancellation, reaper, and restart-reconciliation tests before
    accepting untrusted commands.
+
+## Running the Stage 5 integration test
+
+`tests/test_runsc_runtime_integration.py` covers the direct-runtime lifecycle
+that is safe to validate before the Stage 8 limit/security suite: it boots a
+warm container, executes Python twice, confirms a workspace write survives
+between execs, and confirms cleanup removes the runtime while preserving the
+session directory.  It is opt-in so ordinary development shells never attempt
+to launch gVisor.
+
+From the delegated non-root NixOS service or VM-test context, provide the
+pinned rootfs and its recorded image identity, then run:
+
+```sh
+PYVISOR_RUNSC_INTEGRATION=1 \
+PYVISOR_RUNSC_BINARY=/path/to/runsc \
+PYVISOR_SANDBOX_ROOTFS=/path/to/pinned-python-rootfs \
+PYVISOR_SANDBOX_IMAGE_IDENTITY='python-3.13.x@sha256:...' \
+uv run pytest -m runsc_integration
+```
+
+The test refuses to run as root and skips unless all four settings are present.
+It does not claim to test CPU, memory, pids, session-disk limits, cancellation,
+or isolation probes; those belong to the later resource and security suite.

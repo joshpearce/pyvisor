@@ -17,8 +17,7 @@ uv run ruff check .
 ```
 
 The dependency lockfile is committed so development and CI resolve the same
-versions. Runtime-dependent gVisor tests will be added separately and run on a
-NixOS host.
+versions.
 
 Run the local lifecycle service with `uv run pyvisor`. It executes submitted
 commands as ordinary local processes, so it is useful for development only and
@@ -28,3 +27,22 @@ The direct gVisor backend is opt-in with `PYVISOR_EXECUTION_BACKEND=runsc`.
 It requires a pinned prepared rootfs, an explicit sandbox image identity, and
 the NixOS service permissions described in `docs/design/nixos-runtime.md`; it
 is not runnable from an ordinary development shell.
+
+## NixOS `runsc` integration test
+
+The direct-runtime integration test is deliberately disabled unless explicitly
+enabled.  Run it only from the delegated non-root NixOS service or VM-test
+context described in `docs/design/nixos-runtime.md`:
+
+```sh
+PYVISOR_RUNSC_INTEGRATION=1 \
+PYVISOR_RUNSC_BINARY=/path/to/runsc \
+PYVISOR_SANDBOX_ROOTFS=/path/to/pinned-python-rootfs \
+PYVISOR_SANDBOX_IMAGE_IDENTITY='python-3.13.x@sha256:...' \
+uv run pytest -m runsc_integration
+```
+
+The test boots a warm sandbox, runs Python twice against one workspace,
+verifies the first command's file persists for the second, and verifies orderly
+runtime cleanup leaves the workspace intact.  It is skipped elsewhere rather
+than attempting an unsafe or rootful fallback.
