@@ -276,14 +276,19 @@ Exit criteria:
 ## Stage 8: Resource Limits And Security Verification
 
 Status: in progress. The rootless NixOS host is available for the opt-in
-isolation suite, but per-sandbox CPU, memory, and disk enforcement still need a
-host-level mechanism.
+isolation suite. CPU is enforced only as an aggregate outer-systemd service
+limit; per-sandbox CPU enforcement is a known limitation because the rootless
+runtime deliberately uses `--ignore-cgroups`. Memory and disk enforcement still
+need a host-level mechanism.
 
 Goal: prove the sandbox matches the security model.
 
 Tasks:
 
-- Enforce CPU limits.
+- Closed (known limitation): enforce per-sandbox CPU limits. The deployment's
+  `CPUQuota=400%` limits the whole Pyvisor service, not individual sandboxes;
+  safely adding per-sandbox quotas requires a privileged/delegated cgroup
+  mechanism that the current nested rootless deployment does not provide.
 - Enforce memory limits.
 - Enforce job wall-clock timeout.
 - Enforce session disk quota.
