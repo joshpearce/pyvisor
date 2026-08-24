@@ -592,8 +592,7 @@ async def test_runsc_exec_cancellation_times_out_a_hung_runtime_delete(
         stderr_path=tmp_path / "stderr.bin",
     )
 
-    with pytest.raises(RuntimeUnavailableError, match="runsc delete timed out"):
-        await asyncio.wait_for(execution.terminate(), timeout=0.2)
+    assert await asyncio.wait_for(execution.terminate(), timeout=0.2) is None
 
     assert any("delete" in call for call in calls)
     assert (200, signal.SIGKILL) in stopped_process_groups

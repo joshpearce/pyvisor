@@ -19,6 +19,7 @@ class FakeExecution:
     stdout: str = ""
     stderr: str = ""
     exit_code: int | None = 0
+    termination_exit_code: int | None = -signal.SIGTERM
     start_error: Exception | None = None
 
     def __post_init__(self) -> None:
@@ -88,7 +89,7 @@ class _FakeProcessExecution:
         await self._finished.wait()
         return self._exit_code if self._exit_code is not None else -signal.SIGTERM
 
-    async def terminate(self) -> int:
-        self._exit_code = -signal.SIGTERM
+    async def terminate(self) -> int | None:
+        self._exit_code = self._execution.termination_exit_code
         self._finished.set()
         return self._exit_code

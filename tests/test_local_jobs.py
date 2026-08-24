@@ -94,6 +94,55 @@ async def test_cancel_kills_process_group_and_releases_session(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
+async def test_cancel_without_a_reliable_exit_code_is_still_cancelled(tmp_path: Path) -> None:
+    executor = FakeExecutor(
+        lambda _: FakeExecution(
+            status="running", exit_code=None, termination_exit_code=None
+        )
+    )
+    jobs = JobService(
+        AppConfig(
+            sessions_root=tmp_path / "sessions",
+            runtime_root=tmp_path / "runtime",
+            foreground_soft_cap_seconds=0.01,
+        ),
+        executor,
+    )
+
+    started = await jobs.run("chat_01", "long-running", None)
+    cancelled = await jobs.cancel("chat_01", started.job_id)
+
+    assert cancelled.status == "cancelled"
+    assert cancelled.reason == "cancel_requested"
+    assert cancelled.exit_code is None
+
+
+@pytest.mark.asyncio
+async def test_timeout_without_a_reliable_exit_code_is_still_timed_out(tmp_path: Path) -> None:
+    executor = FakeExecutor(
+        lambda _: FakeExecution(
+            status="running", exit_code=None, termination_exit_code=None
+        )
+    )
+    jobs = JobService(
+        AppConfig(
+            sessions_root=tmp_path / "sessions",
+            runtime_root=tmp_path / "runtime",
+            foreground_soft_cap_seconds=0.01,
+        ),
+        executor,
+    )
+
+    started = await jobs.run("chat_01", "long-running", timeout_seconds=1)
+    await asyncio.sleep(1.1)
+    timed_out = await jobs.poll("chat_01", started.job_id)
+
+    assert timed_out.status == "timed_out"
+    assert timed_out.reason == "timeout"
+    assert timed_out.exit_code is None
+
+
+@pytest.mark.asyncio
 async def test_live_job_makes_second_run_busy(tmp_path: Path) -> None:
     jobs = _service(tmp_path)
     started = await jobs.run("chat_01", "sleep 10", None)

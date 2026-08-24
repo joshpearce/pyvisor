@@ -254,7 +254,7 @@ class RunscExecution:
         finally:
             self._pid_path.unlink(missing_ok=True)
 
-    async def terminate(self) -> int:
+    async def terminate(self) -> int | None:
         """Stop this exec process, destroying the runtime only if it is unsafe to retain."""
         try:
             if self._process.returncode is None:
@@ -290,10 +290,11 @@ class RunscExecution:
         except RuntimeUnavailableError:
             # A failed control operation leaves the launcher untrustworthy too.
             # Discard the dead warm runtime so the next job can cold-start one
-            # against the same durable workspace.
+            # against the same durable workspace. The caller requested this
+            # terminal transition, but no reliable exit code remains.
             self._stop_launcher(signal.SIGKILL)
             await self._discard_runtime(self._runtime)
-            raise
+            return None
         finally:
             self._pid_path.unlink(missing_ok=True)
 
