@@ -65,6 +65,11 @@ class FakeExecutor:
                 stderr.write(execution.stderr.encode())
         return _FakeProcessExecution(execution)
 
+    async def reap(self, session_id: str) -> bool:
+        """The in-memory test backend retains no session runtime."""
+        del session_id
+        return False
+
 
 class _FakeProcessExecution:
     """Asynchronous adapter that keeps the fake backend usable in API tests."""

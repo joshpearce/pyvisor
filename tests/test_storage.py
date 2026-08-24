@@ -104,6 +104,7 @@ async def test_completed_job_can_be_polled_after_service_restart(tmp_path: Path)
 
     assert polled.status == "completed"
     assert polled.stdout.text == "durable\n"
+    await restarted.aclose()
 
 
 @pytest.mark.asyncio
@@ -124,4 +125,6 @@ async def test_restart_terminalizes_interrupted_job_and_writes_one_trace(tmp_pat
     later_restart = JobService(config)
     await later_restart.startup()
     assert len(trace_path.read_text().splitlines()) == 1
+    await later_restart.aclose()
+    await restarted.aclose()
     await first.aclose()

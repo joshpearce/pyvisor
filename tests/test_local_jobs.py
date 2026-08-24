@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from pyvisor.config import AppConfig
+from pyvisor.fake_executor import ExecutionPlanner, FakeExecution, FakeExecutor
 from pyvisor.jobs import BusyError, JobService
 
 
@@ -102,3 +103,68 @@ async def test_live_job_makes_second_run_busy(tmp_path: Path) -> None:
         await jobs.run("chat_01", "printf no", None)
 
     await jobs.cancel("chat_01", started.job_id)
+
+
+class _ReapingFakeExecutor(FakeExecutor):
+    """Fake backend that records idle-runtime destruction requests."""
+
+    def __init__(self, planner: ExecutionPlanner | None = None) -> None:
+        if planner is None:
+            super().__init__()
+        else:
+            super().__init__(planner)
+        self.reaped_sessions: list[str] = []
+
+    async def reap(self, session_id: str) -> bool:
+        self.reaped_sessions.append(session_id)
+        return True
+
+
+@pytest.mark.asyncio
+async def test_idle_reaper_destroys_runtime_without_deleting_session(tmp_path: Path) -> None:
+    config = AppConfig(
+        sessions_root=tmp_path / "sessions",
+        runtime_root=tmp_path / "runtime",
+        idle_reap_seconds=1,
+    )
+    executor = _ReapingFakeExecutor()
+    jobs = JobService(config, executor)
+
+    completed = await jobs.run("chat_01", "printf done", None)
+    jobs._last_activity["chat_01"] -= 2
+
+    assert await jobs.reap_idle() == 1
+    assert executor.reaped_sessions == ["chat_01"]
+    assert (tmp_path / "sessions" / "chat_01" / "workspace").is_dir()
+    assert await jobs.poll("chat_01", completed.job_id) == completed
+
+
+@pytest.mark.asyncio
+async def test_idle_reaper_never_reaps_a_live_job(tmp_path: Path) -> None:
+    config = AppConfig(
+        sessions_root=tmp_path / "sessions",
+        runtime_root=tmp_path / "runtime",
+        foreground_soft_cap_seconds=0.01,
+        idle_reap_seconds=1,
+    )
+    executor = _ReapingFakeExecutor(lambda _: FakeExecution(status="running", exit_code=None))
+    jobs = JobService(config, executor)
+
+    started = await jobs.run("chat_01", "long-running", None)
+    jobs._last_activity["chat_01"] -= 2
+
+    assert await jobs.reap_idle() == 0
+    assert executor.reaped_sessions == []
+    await jobs.cancel("chat_01", started.job_id)
+
+
+@pytest.mark.asyncio
+async def test_startup_starts_and_shutdown_stops_idle_reaper(tmp_path: Path) -> None:
+    jobs = _service(tmp_path)
+
+    await jobs.startup()
+    assert jobs._reaper_task is not None
+    assert not jobs._reaper_task.done()
+
+    await jobs.aclose()
+    assert jobs._reaper_task is None

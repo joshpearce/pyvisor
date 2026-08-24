@@ -224,19 +224,22 @@ Exit criteria:
 
 ## Stage 7: Idle Reaper And Lifecycle Hardening
 
-Status: not started.
+Status: in progress. The service now reaps idle warm runtimes under the same
+per-session lock used for launch, terminalization, and cancellation; deployment
+metrics and NixOS runtime validation remain.
 
 Goal: make long-running service behavior predictable.
 
 Tasks:
 
-- Implement 30-minute idle reap.
-- Treat live jobs as activity.
-- Update activity timestamp on job completion.
-- Ensure reaper cannot race with launch/cancel/poll.
-- Add startup reconciliation.
-- Add lifecycle metrics and logs.
-- Add tests for reaping and non-reaping of active jobs.
+- Completed: implement configured idle reaping for warm runtimes.
+- Completed: treat live jobs as activity.
+- Completed: update activity timestamp on launch and terminal job transitions.
+- Completed: synchronize reaping with launch, cancellation, and terminalization.
+- Completed: retain startup reconciliation before the reaper begins.
+- Completed: add structured idle-reap logs.
+- Pending: add lifecycle metrics.
+- Completed: add tests for reaping and non-reaping of active jobs.
 
 More design needed: moderate.
 

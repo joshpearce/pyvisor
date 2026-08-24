@@ -28,3 +28,6 @@ class JobExecutor(Protocol):
         stdout_path: Path,
         stderr_path: Path,
     ) -> JobExecution: ...
+
+    async def reap(self, session_id: str) -> bool:
+        """Destroy an idle session runtime, returning whether one was removed."""

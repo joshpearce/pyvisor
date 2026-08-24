@@ -539,23 +539,36 @@ class RunscExecutor:
     async def _destroy_runtime(self, runtime: _WarmRuntime) -> None:
         """Delete a known warm runtime and its disposable bundle exactly once."""
         async with self._runtime_lock(runtime.session_id):
-            if self._runtimes.get(runtime.session_id) != runtime:
-                return
-            delete = await asyncio.create_subprocess_exec(
-                str(self._config.runsc_binary),
-                "--root",
-                str(self._builder.runsc_root),
-                "delete",
-                "--force",
-                runtime.bundle.container_id,
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            if await delete.wait() != 0:
-                raise RuntimeUnavailableError("runsc could not delete the warm session runtime")
-            self._runtimes.pop(runtime.session_id, None)
-            self._builder.remove(runtime.bundle)
+            await self._destroy_runtime_locked(runtime)
+
+    async def _destroy_runtime_locked(self, runtime: _WarmRuntime) -> bool:
+        """Delete a runtime while its session-specific runtime lock is held."""
+        if self._runtimes.get(runtime.session_id) != runtime:
+            return False
+        delete = await asyncio.create_subprocess_exec(
+            str(self._config.runsc_binary),
+            "--root",
+            str(self._builder.runsc_root),
+            "delete",
+            "--force",
+            runtime.bundle.container_id,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        if await delete.wait() != 0:
+            raise RuntimeUnavailableError("runsc could not delete the warm session runtime")
+        self._runtimes.pop(runtime.session_id, None)
+        self._builder.remove(runtime.bundle)
+        return True
+
+    async def reap(self, session_id: str) -> bool:
+        """Destroy the warm runtime for an idle session, if it still exists."""
+        async with self._runtime_lock(session_id):
+            runtime = self._runtimes.get(session_id)
+            if runtime is None:
+                return False
+            return await self._destroy_runtime_locked(runtime)
 
     async def aclose(self) -> None:
         """Destroy all warm runtimes during an orderly service shutdown."""

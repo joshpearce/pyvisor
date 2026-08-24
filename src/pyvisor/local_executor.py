@@ -72,3 +72,8 @@ class LocalProcessExecutor:
                 start_new_session=True,
             )
         return LocalProcessExecution(process)
+
+    async def reap(self, session_id: str) -> bool:
+        """The local development backend retains no session runtime."""
+        del session_id
+        return False

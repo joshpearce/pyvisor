@@ -357,6 +357,9 @@ async def test_runsc_executor_reuses_the_session_runtime_for_later_jobs(
     assert container_id in calls[2]
     await first.wait()
     await second.wait()
+    assert await executor.reap("chat_01") is True
+    assert calls[-1][3:] == ("delete", "--force", container_id)
+    assert await executor.reap("chat_01") is False
 
 
 @pytest.mark.asyncio

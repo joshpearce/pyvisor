@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -51,6 +52,8 @@ class JobService:
         self._storage = SessionStorage(config.sessions_root, config.output_limit_bytes)
         self._live_jobs: dict[str, _LiveJob] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._last_activity: dict[str, float] = {}
+        self._reaper_task: asyncio.Task[None] | None = None
 
     async def startup(self) -> None:
         """Reconcile disposable executor state before the API accepts traffic."""
@@ -63,6 +66,8 @@ class JobService:
                 "job_reconciled",
                 extra={"session_id": record.session_id, "job_id": record.job_id},
             )
+        if self._reaper_task is None:
+            self._reaper_task = asyncio.create_task(self._reap_loop(), name="pyvisor-idle-reaper")
 
     @staticmethod
     def _default_executor(config: AppConfig) -> JobExecutor:
@@ -72,6 +77,45 @@ class JobService:
 
     def _session_lock(self, session_id: str) -> asyncio.Lock:
         return self._locks.setdefault(session_id, asyncio.Lock())
+
+    def _touch_activity(self, session_id: str) -> None:
+        """Record runtime activity using a clock unaffected by wall-clock adjustments."""
+        self._last_activity[session_id] = time.monotonic()
+
+    async def _reap_loop(self) -> None:
+        """Periodically destroy runtimes that have outlived their idle period."""
+        interval = min(float(self._config.idle_reap_seconds), 60.0)
+        try:
+            while True:
+                await asyncio.sleep(interval)
+                try:
+                    await self.reap_idle()
+                except Exception:
+                    LOGGER.exception("idle_reap_failed")
+        except asyncio.CancelledError:
+            raise
+
+    async def reap_idle(self) -> int:
+        """Reap eligible warm runtimes without deleting durable session state."""
+        now = time.monotonic()
+        reaped = 0
+        for session_id, last_activity in list(self._last_activity.items()):
+            if now - last_activity < self._config.idle_reap_seconds:
+                continue
+            async with self._session_lock(session_id):
+                current_activity = self._last_activity.get(session_id)
+                if (
+                    current_activity is None
+                    or now - current_activity < self._config.idle_reap_seconds
+                    or session_id in self._live_jobs
+                ):
+                    continue
+                removed = await self._executor.reap(session_id)
+                self._last_activity.pop(session_id, None)
+                if removed:
+                    reaped += 1
+                    LOGGER.info("runtime_idle_reaped", extra={"session_id": session_id})
+        return reaped
 
     def _response(self, record: JobRecord) -> JobResponse:
         stdout, stderr = self._storage.output(record)
@@ -124,6 +168,7 @@ class JobService:
             live = self._live_jobs.get(record.session_id)
             if live is not None and live.job_id == record.job_id:
                 self._live_jobs.pop(record.session_id, None)
+            self._touch_activity(record.session_id)
             LOGGER.info(
                 "job_terminal",
                 extra={
@@ -172,6 +217,7 @@ class JobService:
         async with self._session_lock(session_id):
             if session_id in self._live_jobs:
                 raise BusyError("session already has a live job")
+            self._touch_activity(session_id)
             record = JobRecord(
                 session_id=session_id,
                 job_id=str(uuid4()),
@@ -204,6 +250,7 @@ class JobService:
                 )
                 self._storage.write_job(record)
                 self._storage.append_trace(record)
+                self._touch_activity(session_id)
                 return self._response(record)
             watcher = asyncio.create_task(self._watch(record, execution))
             self._live_jobs[session_id] = _LiveJob(record, record.job_id, execution, watcher)
@@ -247,6 +294,7 @@ class JobService:
                 )
                 self._storage.write_job(terminal)
                 self._storage.append_trace(terminal)
+                self._touch_activity(session_id)
                 return self._response(terminal)
             try:
                 exit_code = await live.execution.terminate()
@@ -271,6 +319,7 @@ class JobService:
             self._storage.write_job(terminal)
             self._storage.append_trace(terminal)
             self._live_jobs.pop(session_id, None)
+            self._touch_activity(session_id)
             LOGGER.info(
                 "job_cancelled",
                 extra={"session_id": session_id, "job_id": job_id, "status": terminal.status},
@@ -279,6 +328,10 @@ class JobService:
 
     async def aclose(self) -> None:
         """Stop local watcher tasks and their process groups during service shutdown."""
+        if self._reaper_task is not None:
+            self._reaper_task.cancel()
+            await asyncio.gather(self._reaper_task, return_exceptions=True)
+            self._reaper_task = None
         live_jobs = list(self._live_jobs.values())
         for live in live_jobs:
             try:
