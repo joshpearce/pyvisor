@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+
+from pyvisor.app import create_app
+from pyvisor.config import AppConfig
+from pyvisor.fake_executor import FakeExecution, FakeExecutor
+from pyvisor.jobs import JobService
 
 
 @pytest_asyncio.fixture
@@ -50,6 +58,31 @@ async def test_run_completed_job(client: AsyncClient) -> None:
         "total_bytes": 24,
         "returned_bytes": 24,
     }
+
+
+@pytest.mark.asyncio
+async def test_run_start_failure_creates_a_durable_runtime_error(tmp_path: Path) -> None:
+    config = AppConfig(sessions_root=tmp_path / "sessions", runtime_root=tmp_path / "runtime")
+    service = JobService(
+        config,
+        FakeExecutor(lambda _: FakeExecution(start_error=RuntimeError("sandbox unavailable"))),
+    )
+    app = create_app(config, service)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        response = await client.post("/v1/sessions/chat_01/jobs", json={"command": "true"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "runtime_error"
+    assert body["exit_code"] is None
+    assert body["finished_at"] is not None
+    state_path = tmp_path / "sessions" / "chat_01" / "jobs" / body["job_id"] / "state.json"
+    state = json.loads(state_path.read_text())
+    assert state["status"] == "runtime_error"
+    assert state["reason"] == "executor_start_failed"
 
 
 @pytest.mark.asyncio

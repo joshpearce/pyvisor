@@ -316,6 +316,58 @@ async def test_runsc_executor_boots_a_warm_runtime_then_executes_a_command(
 
 
 @pytest.mark.asyncio
+async def test_runsc_executor_reports_warm_runtime_launch_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rootfs = tmp_path / "rootfs"
+    rootfs.mkdir()
+    workspace = tmp_path / "sessions" / "chat_01" / "workspace"
+    workspace.mkdir(parents=True)
+    runsc = tmp_path / "runsc"
+    runsc.write_text("#!/bin/sh\n")
+    runsc.chmod(0o700)
+    config = AppConfig(
+        sessions_root=tmp_path / "sessions",
+        runtime_root=tmp_path / "runtime",
+        sandbox_rootfs=rootfs,
+        sandbox_image_identity="python-3.13.5@sha256:example",
+        runsc_binary=runsc,
+    )
+    calls: list[tuple[object, ...]] = []
+
+    class Process:
+        returncode = 1
+
+        async def wait(self) -> int:
+            return self.returncode
+
+    async def create_subprocess_exec(*args: object, **kwargs: object) -> Process:
+        calls.append(args)
+        stderr = kwargs["stderr"]
+        assert hasattr(stderr, "write")
+        stderr.write(b"runsc: sandbox boot failed\n")
+        stderr.flush()
+        return Process()
+
+    monkeypatch.setattr(
+        "pyvisor.runsc_executor.asyncio.create_subprocess_exec", create_subprocess_exec
+    )
+
+    with pytest.raises(RuntimeUnavailableError, match="runsc: sandbox boot failed"):
+        await RunscExecutor(config).start(
+            "true",
+            session_id="chat_01",
+            workspace=workspace,
+            stdout_path=tmp_path / "stdout.bin",
+            stderr_path=tmp_path / "stderr.bin",
+        )
+
+    assert len(calls) == 1
+    assert calls[0][7] == "run"
+    assert list((tmp_path / "runtime" / "bundles").iterdir()) == []
+
+
+@pytest.mark.asyncio
 async def test_runsc_executor_reuses_the_session_runtime_for_later_jobs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

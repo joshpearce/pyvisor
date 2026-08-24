@@ -19,6 +19,7 @@ class FakeExecution:
     stdout: str = ""
     stderr: str = ""
     exit_code: int | None = 0
+    start_error: Exception | None = None
 
     def __post_init__(self) -> None:
         if self.status == "running" and self.exit_code is not None:
@@ -57,6 +58,8 @@ class FakeExecutor:
     ) -> _FakeProcessExecution:
         del session_id, workspace
         execution = self._planner(command)
+        if execution.start_error is not None:
+            raise execution.start_error
         if execution.stdout:
             with stdout_path.open("ab") as stdout:
                 stdout.write(execution.stdout.encode())

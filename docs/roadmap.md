@@ -472,7 +472,7 @@ local-backend default still loads, and the suite passes.
 
 ### FU-3: Cover The Executor Start-Failure Path With Tests
 
-- Status: pending
+- Status: in progress
 - Priority: high
 - Stage: 5
 - Blocked by: none
