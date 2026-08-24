@@ -136,6 +136,7 @@
             "PYVISOR_LISTEN_HOST=0.0.0.0"
             "PYVISOR_RUNSC_BINARY=${pkgs.gvisor}/bin/runsc"
             "PYVISOR_SANDBOX_ROOTFS=${sandboxRootfs}"
+            "PYVISOR_SANDBOX_IMAGE_IDENTITY=pyvisor-sandbox-python-3.13@${builtins.baseNameOf sandboxRootfs}"
             "PYVISOR_SESSIONS_ROOT=/var/lib/pyvisor/sessions"
             "PYVISOR_RUNTIME_ROOT=/var/lib/pyvisor/runtime"
           ];

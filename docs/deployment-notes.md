@@ -56,6 +56,7 @@ here without a matching change there fails quietly rather than loudly.
 | Listen port | `8000` | Healthcheck and the tsnsrv backend URL both break. |
 | Health endpoint | `GET /healthz` | Container is marked unhealthy forever. |
 | `pkgs.curl` in image `contents` | required | The healthcheck runs *inside* the container as `/bin/curl --fail --silent http://127.0.0.1:8000/healthz`. |
+| Sandbox image identity | Derived in the container image from `sandbox-rootfs` | The image and trace provenance cannot drift; do not override `PYVISOR_SANDBOX_IMAGE_IDENTITY` in NixOS. |
 | Flake output names | `pyvisor-container`, `sandbox-rootfs` | Both are referenced by name from the NixOS module. |
 
 The healthcheck deliberately uses the image's own `/bin/curl` rather than a host
@@ -69,16 +70,16 @@ Rootless Podman, host user `pyvisor` (UID 1219), with `runsc` sandboxes nested
 
 ### Sandbox image identity
 
-`PYVISOR_SANDBOX_IMAGE_IDENTITY` is now derived at Nix evaluation time from the
-same `sandbox-rootfs` derivation the image bakes in:
+`PYVISOR_SANDBOX_IMAGE_IDENTITY` is baked into the image at Nix evaluation time
+from the same `sandbox-rootfs` derivation the image contains:
 
 ```
 pyvisor-sandbox-python-3.13@1lmzlrmxg18p6q4lp72msjl4m94s73kh-pyvisor-sandbox-rootfs-3.13.14
 ```
 
 Nix's hashing guarantees it cannot drift from the rootfs that actually ran the
-code. It previously shipped as the literal `REPLACE_WITH_NAR_HASH` placeholder
-from the design draft.
+code. The NixOS module must not override it. It previously shipped as the
+literal `REPLACE_WITH_NAR_HASH` placeholder from the design draft.
 
 **Suggested change here:** `config.py` currently rejects only an *empty*
 identity, so a placeholder or stale value is accepted silently and the

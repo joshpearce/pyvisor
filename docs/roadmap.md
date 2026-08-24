@@ -605,7 +605,7 @@ Done when: the draft no longer contains a value known to break a deployment.
 
 ### FU-7: Derive The Sandbox Image Identity In The Flake
 
-- Status: pending
+- Status: in progress
 - Priority: low
 - Stage: 6
 - Blocked by: FU-2
