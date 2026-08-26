@@ -70,8 +70,13 @@ def create_app(config: AppConfig | None = None, jobs: JobService | None = None) 
         return _error(400, error.code, str(error))
 
     @app.get("/healthz", response_model=HealthResponse)
-    async def healthz() -> HealthResponse:
-        return HealthResponse()
+    async def healthz() -> HealthResponse | JSONResponse:
+        if config.execution_backend != "runsc":
+            response = HealthResponse(
+                status="unsafe_local_execution", execution_backend=config.execution_backend
+            )
+            return JSONResponse(status_code=503, content=response.model_dump())
+        return HealthResponse(execution_backend=config.execution_backend)
 
     @app.get("/metrics", include_in_schema=False)
     async def metrics() -> PlainTextResponse:
@@ -134,14 +139,11 @@ def create_app(config: AppConfig | None = None, jobs: JobService | None = None) 
             )
             return _error(500, "internal_error", "durable job storage failed")  # type: ignore[return-value]
 
-    LOGGER.info("service_boot")
+    LOGGER.info("service_boot", extra={"execution_backend": config.execution_backend})
     return app
-
-
-app = create_app()
 
 
 def main() -> None:
     """Run the development HTTP server."""
     config = AppConfig.from_environment()
-    uvicorn.run(app, host=config.listen_host, port=config.listen_port, reload=False)
+    uvicorn.run(create_app(config), host=config.listen_host, port=config.listen_port, reload=False)

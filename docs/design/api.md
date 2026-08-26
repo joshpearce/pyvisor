@@ -51,10 +51,14 @@ Errors use:
 
 ## `GET /healthz`
 
-Returns `200` and `{"status":"ok"}` when the process can serve requests.
-It does not claim that the gVisor runtime is usable.  Runtime readiness is
-reported in structured logs and later metrics, so a temporary `runsc` failure
-does not make an otherwise healthy process disappear from diagnostics.
+Returns `200` and `{"status":"ok","execution_backend":"runsc"}` when the
+process can serve requests using the required execution backend. It does not
+claim that the gVisor runtime is usable. Runtime readiness is reported in
+structured logs and later metrics, so a temporary `runsc` failure does not make
+an otherwise healthy process disappear from diagnostics. An explicitly enabled
+unsafe local-development backend returns `503` with
+`{"status":"unsafe_local_execution","execution_backend":"local"}`, preventing
+deployment health checks from treating it as a valid sandbox service.
 
 ## `GET /metrics`
 

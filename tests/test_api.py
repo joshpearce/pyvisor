@@ -27,7 +27,29 @@ async def test_healthz(client: AsyncClient) -> None:
     response = await client.get("/healthz")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "ok", "execution_backend": "runsc"}
+
+
+@pytest.mark.asyncio
+async def test_healthz_fails_for_explicit_unsafe_local_execution(tmp_path: Path) -> None:
+    config = AppConfig(
+        sessions_root=tmp_path / "sessions",
+        runtime_root=tmp_path / "runtime",
+        execution_backend="local",
+        unsafe_local_execution=True,
+    )
+    app = create_app(config, JobService(config, FakeExecutor()))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver"
+    ) as local_client:
+        response = await local_client.get("/healthz")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "unsafe_local_execution",
+        "execution_backend": "local",
+    }
 
 
 @pytest.mark.asyncio

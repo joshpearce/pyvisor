@@ -33,7 +33,7 @@ enforced sandbox limits.
 | target memory limit | 1 GiB |
 | target session disk limit | 1 GiB |
 | target scratch disk limit | 512 MiB |
-| execution backend | `local` (development only) |
+| execution backend | `runsc` |
 | `runsc` binary | `/usr/local/bin/runsc` |
 | sandbox rootfs | `/var/lib/pyvisor/rootfs` |
 | sandbox image identity | `pyvisor-sandbox:unconfigured` |
@@ -43,12 +43,15 @@ runtime backend proves the selected host mechanism applies them.  The job
 wall-clock timeout and API-output bound are enforced by the service from the
 local-process stage onward.
 
-`PYVISOR_EXECUTION_BACKEND=runsc` selects the direct gVisor backend.  It also
-requires `PYVISOR_RUNSC_BINARY`, `PYVISOR_SANDBOX_ROOTFS`, and a non-placeholder
-`PYVISOR_SANDBOX_IMAGE_IDENTITY` appropriate to the deployment. The service
-runs as a dedicated non-root account. Its rootless OCI bundle maps only
-in-sandbox UID/GID 0 to that account so the private session workspace remains
-writable without being made world-writable.
+The direct gVisor backend is the default and requires `PYVISOR_RUNSC_BINARY`,
+`PYVISOR_SANDBOX_ROOTFS`, and a non-placeholder
+`PYVISOR_SANDBOX_IMAGE_IDENTITY` appropriate to the deployment. Local host
+execution is available only for lifecycle development with both
+`PYVISOR_EXECUTION_BACKEND=local` and `PYVISOR_UNSAFE_LOCAL_EXECUTION=1`; it
+refuses non-loopback listeners and is unhealthy by design. The service runs as
+a dedicated non-root account. Its rootless OCI bundle maps only in-sandbox
+UID/GID 0 to that account so the private session workspace remains writable
+without being made world-writable.
 
 ## Components and ownership
 

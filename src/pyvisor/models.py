@@ -51,7 +51,8 @@ class JobResponse(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    status: Literal["ok"] = "ok"
+    status: Literal["ok", "unsafe_local_execution"] = "ok"
+    execution_backend: Literal["runsc", "local"]
 
 
 class ErrorDetail(BaseModel):

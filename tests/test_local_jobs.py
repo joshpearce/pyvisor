@@ -16,6 +16,8 @@ def _service(tmp_path: Path, **config_values: object) -> JobService:
         "sessions_root": tmp_path / "sessions",
         "runtime_root": tmp_path / "runtime",
         "foreground_soft_cap_seconds": 0.05,
+        "execution_backend": "local",
+        "unsafe_local_execution": True,
         **config_values,
     }
     config = AppConfig(**values)  # type: ignore[arg-type]

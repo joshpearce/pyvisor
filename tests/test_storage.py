@@ -98,7 +98,7 @@ async def test_completed_job_can_be_polled_after_service_restart(tmp_path: Path)
     first = JobService(config, executor)
     submitted = await first.run("chat_01", "echo durable", None)
 
-    restarted = JobService(config)
+    restarted = JobService(config, FakeExecutor())
     await restarted.startup()
     polled = await restarted.poll("chat_01", submitted.job_id)
 
@@ -110,10 +110,12 @@ async def test_completed_job_can_be_polled_after_service_restart(tmp_path: Path)
 @pytest.mark.asyncio
 async def test_restart_terminalizes_interrupted_job_and_writes_one_trace(tmp_path: Path) -> None:
     config = AppConfig(sessions_root=tmp_path / "sessions", runtime_root=tmp_path / "runtime")
-    first = JobService(config, FakeExecutor(lambda _: FakeExecution(status="running", exit_code=None)))
+    first = JobService(
+        config, FakeExecutor(lambda _: FakeExecution(status="running", exit_code=None))
+    )
     submitted = await first.run("chat_01", "wait", None)
 
-    restarted = JobService(config)
+    restarted = JobService(config, FakeExecutor())
     await restarted.startup()
     polled = await restarted.poll("chat_01", submitted.job_id)
     trace_path = tmp_path / "sessions" / "chat_01" / "trace.jsonl"
@@ -122,7 +124,7 @@ async def test_restart_terminalizes_interrupted_job_and_writes_one_trace(tmp_pat
     assert polled.finished_at is not None
     assert json.loads(trace_path.read_text())["reason"] == "service_restart"
 
-    later_restart = JobService(config)
+    later_restart = JobService(config, FakeExecutor())
     await later_restart.startup()
     assert len(trace_path.read_text().splitlines()) == 1
     await later_restart.aclose()

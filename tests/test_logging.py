@@ -50,3 +50,13 @@ def test_json_formatter_bounds_exception_detail() -> None:
 
     assert event["error_type"] == "ValueError"
     assert event["error"] == "x" * 4_096
+
+
+def test_json_formatter_includes_selected_execution_backend() -> None:
+    formatter = JsonFormatter()
+    record = logging.LogRecord("pyvisor.app", logging.INFO, __file__, 0, "service_boot", (), None)
+    record.execution_backend = "runsc"  # type: ignore[attr-defined]
+
+    event = json.loads(formatter.format(record))
+
+    assert event["execution_backend"] == "runsc"

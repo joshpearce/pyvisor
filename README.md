@@ -19,14 +19,15 @@ uv run ruff check .
 The dependency lockfile is committed so development and CI resolve the same
 versions.
 
-Run the local lifecycle service with `uv run pyvisor`. It executes submitted
-commands as ordinary local processes, so it is useful for development only and
-must never be exposed as a sandbox service.
+Pyvisor defaults to the direct gVisor backend. It requires a pinned prepared
+rootfs, an explicit sandbox image identity, and the NixOS service permissions
+described in `docs/design/nixos-runtime.md`; it is not runnable from an ordinary
+development shell.
 
-The direct gVisor backend is opt-in with `PYVISOR_EXECUTION_BACKEND=runsc`.
-It requires a pinned prepared rootfs, an explicit sandbox image identity, and
-the NixOS service permissions described in `docs/design/nixos-runtime.md`; it
-is not runnable from an ordinary development shell.
+For lifecycle-only development, local host execution requires both
+`PYVISOR_EXECUTION_BACKEND=local` and `PYVISOR_UNSAFE_LOCAL_EXECUTION=1`. It
+accepts only an exact loopback listener (`127.0.0.1` or `::1`), reports an
+unhealthy `/healthz`, and must never be exposed as a sandbox service.
 
 The pinned offline Python rootfs is defined by the repository Nix flake.  See
 `docs/design/sandbox-image.md` to build it, inspect its manifest, and derive

@@ -33,6 +33,16 @@ def _positive_float(name: str, default: float) -> float:
     return parsed
 
 
+def _enabled(name: str) -> bool:
+    """Return whether a deliberately dangerous development switch is enabled."""
+    value = os.getenv(name)
+    if value is None:
+        return False
+    if value != "1":
+        raise ConfigurationError(f"{name} must be exactly '1' when set")
+    return True
+
+
 @dataclass(frozen=True, slots=True)
 class AppConfig:
     """Configuration values used by the service and execution backends."""
@@ -49,13 +59,27 @@ class AppConfig:
     memory_limit_bytes: int = 1_073_741_824
     session_disk_limit_bytes: int = 1_073_741_824
     scratch_disk_limit_bytes: int = 536_870_912
-    execution_backend: str = "local"
+    execution_backend: str = "runsc"
+    unsafe_local_execution: bool = False
     runsc_binary: Path = Path("/usr/local/bin/runsc")
     sandbox_rootfs: Path = Path("/var/lib/pyvisor/rootfs")
     sandbox_image_identity: str = "pyvisor-sandbox:unconfigured"
     listen_host: str = "127.0.0.1"
     listen_port: int = 8000
     log_level: str = "INFO"
+
+    def __post_init__(self) -> None:
+        """Reject unsafe local execution even for programmatically built configurations."""
+        if self.execution_backend != "local":
+            return
+        if self.unsafe_local_execution is not True:
+            raise ConfigurationError(
+                "PYVISOR_EXECUTION_BACKEND=local requires PYVISOR_UNSAFE_LOCAL_EXECUTION=1"
+            )
+        if self.listen_host not in {"127.0.0.1", "::1"}:
+            raise ConfigurationError(
+                "local execution requires PYVISOR_LISTEN_HOST to be an exact loopback address"
+            )
 
     @classmethod
     def from_environment(cls) -> AppConfig:
@@ -75,7 +99,8 @@ class AppConfig:
                 "PYVISOR_SESSION_DISK_LIMIT_BYTES", 1_073_741_824
             ),
             scratch_disk_limit_bytes=_positive_int("PYVISOR_SCRATCH_DISK_LIMIT_BYTES", 536_870_912),
-            execution_backend=os.getenv("PYVISOR_EXECUTION_BACKEND", "local").lower(),
+            execution_backend=os.getenv("PYVISOR_EXECUTION_BACKEND", "runsc").lower(),
+            unsafe_local_execution=_enabled("PYVISOR_UNSAFE_LOCAL_EXECUTION"),
             runsc_binary=Path(os.getenv("PYVISOR_RUNSC_BINARY", "/usr/local/bin/runsc")),
             sandbox_rootfs=Path(os.getenv("PYVISOR_SANDBOX_ROOTFS", "/var/lib/pyvisor/rootfs")),
             sandbox_image_identity=os.getenv(

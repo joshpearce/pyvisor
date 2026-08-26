@@ -78,7 +78,9 @@ class JobService:
     def _default_executor(config: AppConfig) -> JobExecutor:
         if config.execution_backend == "runsc":
             return RunscExecutor(config)
-        return LocalProcessExecutor()
+        if config.execution_backend == "local" and config.unsafe_local_execution:
+            return LocalProcessExecutor()
+        raise ValueError("local execution requires explicit unsafe configuration")
 
     def _session_lock(self, session_id: str) -> asyncio.Lock:
         return self._locks.setdefault(session_id, asyncio.Lock())
