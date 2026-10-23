@@ -122,34 +122,37 @@
         '';
         doCheck = false;
       };
-      pyvisorContainer = pkgs.dockerTools.buildLayeredImage {
-        name = "localhost/pyvisor";
-        tag = "0.1.0";
-        contents = [
-          pyvisorApp
-          pkgs.cacert
-          pkgs.curl
-          pkgs.gvisor
-          sandboxRootfs
-        ];
-        config = {
-          Cmd = [ "${pyvisorApp}/bin/pyvisor" ];
-          Env = [
-            "PYTHONUNBUFFERED=1"
-            "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
-            "PYVISOR_EXECUTION_BACKEND=runsc"
-            "PYVISOR_LISTEN_HOST=0.0.0.0"
-            "PYVISOR_RUNSC_BINARY=${pkgs.gvisor}/bin/runsc"
-            "PYVISOR_SANDBOX_ROOTFS=${sandboxRootfs}"
-            "PYVISOR_SANDBOX_IMAGE_IDENTITY=pyvisor-sandbox-python-3.13@${builtins.baseNameOf sandboxRootfs}"
-            "PYVISOR_SESSIONS_ROOT=/var/lib/pyvisor/sessions"
-            "PYVISOR_RUNTIME_ROOT=/var/lib/pyvisor/runtime"
+      mkPyvisorContainer =
+        caBundle:
+        pkgs.dockerTools.buildLayeredImage {
+          name = "localhost/pyvisor";
+          tag = "0.1.0";
+          contents = [
+            pyvisorApp
+            caBundle
+            pkgs.curl
+            pkgs.gvisor
+            sandboxRootfs
           ];
-          ExposedPorts = {
-            "8000/tcp" = { };
+          config = {
+            Cmd = [ "${pyvisorApp}/bin/pyvisor" ];
+            Env = [
+              "PYTHONUNBUFFERED=1"
+              "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
+              "PYVISOR_EXECUTION_BACKEND=runsc"
+              "PYVISOR_LISTEN_HOST=0.0.0.0"
+              "PYVISOR_RUNSC_BINARY=${pkgs.gvisor}/bin/runsc"
+              "PYVISOR_SANDBOX_ROOTFS=${sandboxRootfs}"
+              "PYVISOR_SANDBOX_IMAGE_IDENTITY=pyvisor-sandbox-python-3.13@${builtins.baseNameOf sandboxRootfs}"
+              "PYVISOR_SESSIONS_ROOT=/var/lib/pyvisor/sessions"
+              "PYVISOR_RUNTIME_ROOT=/var/lib/pyvisor/runtime"
+            ];
+            ExposedPorts = {
+              "8000/tcp" = { };
+            };
           };
         };
-      };
+      pyvisorContainer = mkPyvisorContainer pkgs.cacert;
     in
     {
       packages.${system} = {
@@ -157,6 +160,9 @@
         pyvisor = pyvisorApp;
         pyvisor-container = pyvisorContainer;
         default = sandboxRootfs;
+      };
+      lib.${system} = {
+        inherit mkPyvisorContainer;
       };
     };
 }
