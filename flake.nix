@@ -124,12 +124,17 @@
       };
       mkPyvisorContainer =
         caBundle:
+        let
+          caRoot = pkgs.runCommand "pyvisor-ca-bundle" { } ''
+            install -Dm0444 ${caBundle} "$out/etc/ssl/certs/ca-bundle.crt"
+          '';
+        in
         pkgs.dockerTools.buildLayeredImage {
           name = "localhost/pyvisor";
           tag = "0.1.0";
           contents = [
             pyvisorApp
-            caBundle
+            caRoot
             pkgs.curl
             pkgs.gvisor
             sandboxRootfs
@@ -152,7 +157,7 @@
             };
           };
         };
-      pyvisorContainer = mkPyvisorContainer pkgs.cacert;
+      pyvisorContainer = mkPyvisorContainer "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
     in
     {
       packages.${system} = {
