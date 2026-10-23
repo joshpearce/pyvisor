@@ -3,7 +3,8 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-  outputs = { nixpkgs, ... }:
+  outputs =
+    { nixpkgs, ... }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs {
@@ -42,36 +43,38 @@
       rootfsClosure = pkgs.closureInfo {
         rootPaths = [ rootfsEnvironment ];
       };
-      imageManifest = pkgs.writeText "pyvisor-sandbox-image.json" (builtins.toJSON {
-        format_version = 1;
-        python = {
-          implementation = "CPython";
-          version = pkgs.python313.version;
-        };
-        packages = {
-          numpy = pythonPackages.numpy.version;
-          pandas = pythonPackages.pandas.version;
-          scipy = pythonPackages.scipy.version;
-          scikit_learn = pythonPackages.scikit-learn.version;
-          matplotlib = pythonPackages.matplotlib.version;
-          sympy = pythonPackages.sympy.version;
-          networkx = pythonPackages.networkx.version;
-          statsmodels = pythonPackages.statsmodels.version;
-          pip = pythonPackages.pip.version;
-        };
-        shell_utilities = [
-          "bash"
-          "coreutils"
-          "diffutils"
-          "file"
-          "findutils"
-          "gawk"
-          "gnugrep"
-          "gnused"
-          "less"
-          "which"
-        ];
-      });
+      imageManifest = pkgs.writeText "pyvisor-sandbox-image.json" (
+        builtins.toJSON {
+          format_version = 1;
+          python = {
+            implementation = "CPython";
+            version = pkgs.python313.version;
+          };
+          packages = {
+            numpy = pythonPackages.numpy.version;
+            pandas = pythonPackages.pandas.version;
+            scipy = pythonPackages.scipy.version;
+            scikit_learn = pythonPackages.scikit-learn.version;
+            matplotlib = pythonPackages.matplotlib.version;
+            sympy = pythonPackages.sympy.version;
+            networkx = pythonPackages.networkx.version;
+            statsmodels = pythonPackages.statsmodels.version;
+            pip = pythonPackages.pip.version;
+          };
+          shell_utilities = [
+            "bash"
+            "coreutils"
+            "diffutils"
+            "file"
+            "findutils"
+            "gawk"
+            "gnugrep"
+            "gnused"
+            "less"
+            "which"
+          ];
+        }
+      );
       sandboxRootfs = pkgs.runCommand "pyvisor-sandbox-rootfs-${pkgs.python313.version}" { } ''
         mkdir -p "$out/bin" "$out/etc" "$out/nix/store" "$out/tmp" "$out/usr/local/bin" "$out/workspace"
         chmod 1777 "$out/tmp"
@@ -124,6 +127,7 @@
         tag = "0.1.0";
         contents = [
           pyvisorApp
+          pkgs.cacert
           pkgs.curl
           pkgs.gvisor
           sandboxRootfs
@@ -132,6 +136,7 @@
           Cmd = [ "${pyvisorApp}/bin/pyvisor" ];
           Env = [
             "PYTHONUNBUFFERED=1"
+            "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
             "PYVISOR_EXECUTION_BACKEND=runsc"
             "PYVISOR_LISTEN_HOST=0.0.0.0"
             "PYVISOR_RUNSC_BINARY=${pkgs.gvisor}/bin/runsc"
@@ -140,7 +145,9 @@
             "PYVISOR_SESSIONS_ROOT=/var/lib/pyvisor/sessions"
             "PYVISOR_RUNTIME_ROOT=/var/lib/pyvisor/runtime"
           ];
-          ExposedPorts = { "8000/tcp" = { }; };
+          ExposedPorts = {
+            "8000/tcp" = { };
+          };
         };
       };
     in
